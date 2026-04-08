@@ -104,6 +104,39 @@ def create_app(config: Config | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="All keys exhausted")
         start = time.time()
         try:
+            if req.action == "math" and config.mathpix.enabled:
+                try:
+                    from notes_server.mathpix import MathpixClient
+                    mpx = MathpixClient(
+                        app_id=config.mathpix.app_id,
+                        app_key=config.mathpix.app_key,
+                    )
+                    ocr = mpx.ocr(image_base64=req.image_base64)
+                    chat_key = state.key_pool.pick()
+                    if chat_key is None:
+                        raise HTTPException(status_code=503, detail="All keys exhausted")
+                    groq = GroqClient(api_key=chat_key)
+                    prompt = state.prompts.get("transform_math")
+                    result = groq.chat(
+                        model=config.groq.models["chat"],
+                        system=prompt,
+                        messages=[{"role": "user", "content": f"LaTeX:\n{ocr.latex}\n\nSolve step by step."}],
+                    )
+                    state.key_pool.mark_success(chat_key)
+                    state.logger.log({
+                        "action": "transform.math.mathpix",
+                        "model": result.model,
+                        "latex": ocr.latex,
+                        "confidence": ocr.confidence,
+                    })
+                    return TransformResponse(
+                        result_type="markdown",
+                        markdown=f"**LaTeX:** `{ocr.latex}`\n\n{result.text}",
+                        model_used=f"mathpix + {result.model}",
+                    )
+                except Exception as e:
+                    state.logger.log({"action": "transform.math.mathpix.error", "error": str(e)})
+                    # fall through to vision path
             prompt_name = ACTION_TO_PROMPT[req.action]
             prompt = state.prompts.get(prompt_name)
             groq = GroqClient(api_key=key)
