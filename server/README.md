@@ -15,3 +15,13 @@ PC companion for the iPad AI Notes app. Proxies AI requests to Groq, manages key
 pytest              # unit tests
 RUN_LIVE_TESTS=1 pytest tests/test_live.py   # real Groq calls (manual)
 ```
+
+## Manual smoke test
+
+With a real `config.yaml`:
+
+```
+RUN_LIVE_TESTS=1 pytest tests/test_live.py -v -s
+```
+
+Put a sample handwritten math image at `tests/fixtures/math_sample.png` to exercise the vision path.
