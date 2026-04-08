@@ -1,3 +1,4 @@
+import base64
 import time
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -11,6 +12,7 @@ from notes_server.models import (
     HealthResponse,
     ChatRequest, ChatResponse,
     TransformRequest, TransformResponse,
+    TranscribeRequest, TranscribeResponse,
 )
 
 
@@ -123,6 +125,34 @@ def create_app(config: Config | None = None) -> FastAPI:
             elif result_type == "markdown":
                 resp_kwargs["markdown"] = result.text
             return TransformResponse(**resp_kwargs)
+        except Exception as e:
+            state.key_pool.mark_error(key)
+            raise HTTPException(status_code=502, detail=f"Upstream error: {e}")
+
+    @app.post("/ai/transcribe", response_model=TranscribeResponse)
+    def transcribe(req: TranscribeRequest):
+        key = state.key_pool.pick()
+        if key is None:
+            raise HTTPException(status_code=503, detail="All keys exhausted")
+        start = time.time()
+        try:
+            audio_bytes = base64.b64decode(req.audio_base64)
+            groq = GroqClient(api_key=key)
+            lang = req.language or config.voice.default_language
+            result = groq.transcribe(
+                model=config.groq.models["whisper"],
+                audio_bytes=audio_bytes,
+                language=lang,
+            )
+            state.key_pool.mark_success(key)
+            latency = int((time.time() - start) * 1000)
+            state.logger.log({
+                "action": "transcribe",
+                "model": result.model,
+                "latency_ms": latency,
+                "language": lang,
+            })
+            return TranscribeResponse(text=result.text, language_detected=lang)
         except Exception as e:
             state.key_pool.mark_error(key)
             raise HTTPException(status_code=502, detail=f"Upstream error: {e}")
