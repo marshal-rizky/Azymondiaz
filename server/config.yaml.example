@@ -1,0 +1,29 @@
+groq:
+  keys:
+    - sk-REPLACE-ME-1
+    - sk-REPLACE-ME-2
+    - sk-REPLACE-ME-3
+    - sk-REPLACE-ME-4
+    - sk-REPLACE-ME-5
+  cooldown_seconds: 60
+  models:
+    chat: "llama-3.3-70b-versatile"
+    vision: "llama-3.2-90b-vision-preview"
+    whisper: "whisper-large-v3-turbo"
+
+mathpix:
+  enabled: false
+  app_id: ""
+  app_key: ""
+
+sync:
+  db_path: "./notes_mirror.sqlite"
+
+voice:
+  default_language: "auto"
+
+ai:
+  response_language: "match_input"
+
+logging:
+  dir: "./logs"

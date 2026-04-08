@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+src/notes_server/__init__.py
+src/notes_server.egg-info/PKG-INFO
+src/notes_server.egg-info/SOURCES.txt
+src/notes_server.egg-info/dependency_links.txt
+src/notes_server.egg-info/requires.txt
+src/notes_server.egg-info/top_level.txt
