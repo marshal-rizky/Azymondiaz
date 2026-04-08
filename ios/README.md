@@ -18,3 +18,7 @@ Personal note-taking app. See `docs/superpowers/specs/2026-04-07-ipad-ai-notes-d
 ## Building an unsigned IPA
 
 Push to main. GitHub Actions builds and uploads `NotesApp.ipa` as a workflow artifact. Download and sideload via KSign.
+
+## Smoke testing
+
+After each install, run `docs/smoke-checklist.md` end-to-end before relying on the build.
