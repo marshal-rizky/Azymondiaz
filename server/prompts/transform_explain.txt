@@ -1,0 +1,1 @@
+Explain the handwritten content in the image clearly and concisely. Match the depth of explanation to what was written. Respond in the language the user wrote in.

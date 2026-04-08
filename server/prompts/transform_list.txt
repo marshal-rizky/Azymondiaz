@@ -1,0 +1,1 @@
+Convert the handwritten content in the image to a clean markdown bulleted or numbered list. Preserve the structure and language. Return only the list.

@@ -1,0 +1,1 @@
+Transcribe the handwritten content in the image to plain typed text. Preserve line breaks and structure. Do not interpret or expand. Return only the transcription.

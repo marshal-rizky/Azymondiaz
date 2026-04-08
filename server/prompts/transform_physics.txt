@@ -1,0 +1,1 @@
+The image contains handwritten physics work (equations, diagrams, or both). Identify what is being asked, list relevant formulas, show the solution step by step. For diagrams, describe what you see and state any assumptions. Respond in the language the user wrote in.
