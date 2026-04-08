@@ -13,6 +13,8 @@ from notes_server.models import (
     ChatRequest, ChatResponse,
     TransformRequest, TransformResponse,
     TranscribeRequest, TranscribeResponse,
+    SyncPushRequest, SyncPushResponse,
+    SyncPullRequest, SyncPullResponse,
 )
 
 
@@ -156,6 +158,16 @@ def create_app(config: Config | None = None) -> FastAPI:
         except Exception as e:
             state.key_pool.mark_error(key)
             raise HTTPException(status_code=502, detail=f"Upstream error: {e}")
+
+    @app.post("/sync/push", response_model=SyncPushResponse)
+    def sync_push(req: SyncPushRequest):
+        written = state.sync_store.push(req.notebooks)
+        return SyncPushResponse(accepted_at=time.time(), pages_written=written)
+
+    @app.post("/sync/pull", response_model=SyncPullResponse)
+    def sync_pull(req: SyncPullRequest):
+        notebooks = state.sync_store.pull(notebook_id=req.notebook_id)
+        return SyncPullResponse(notebooks=notebooks)
 
     return app
 
