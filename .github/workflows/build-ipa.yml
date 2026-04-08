@@ -11,8 +11,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+      - name: Select Xcode
+        run: |
+          # Pick Xcode 15.x — fall back to whatever is available
+          if [ -d /Applications/Xcode_15.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app
+          elif [ -d /Applications/Xcode_15.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_15.2.app
+          else
+            sudo xcode-select -s $(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          fi
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
