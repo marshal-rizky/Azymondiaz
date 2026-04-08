@@ -1,0 +1,18 @@
+# Xcode
+*.xcworkspace
+xcuserdata/
+DerivedData/
+*.xcuserstate
+ios/NotesApp.xcodeproj/
+build/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# secrets
+server/config.yaml
