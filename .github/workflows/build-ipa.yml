@@ -7,21 +7,12 @@ on:
 
 jobs:
   test-and-build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: |
-          # Pick Xcode 15.x — fall back to whatever is available
-          if [ -d /Applications/Xcode_15.4.app ]; then
-            sudo xcode-select -s /Applications/Xcode_15.4.app
-          elif [ -d /Applications/Xcode_15.2.app ]; then
-            sudo xcode-select -s /Applications/Xcode_15.2.app
-          else
-            sudo xcode-select -s $(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-          fi
-          xcodebuild -version
+      - name: Show Xcode version
+        run: xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -36,7 +27,7 @@ jobs:
           set -o pipefail
           xcodebuild test \
             -scheme NotesApp \
-            -destination 'platform=iOS Simulator,name=iPad Pro (11-inch) (4th generation),OS=latest' \
+            -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=latest' \
             CODE_SIGNING_ALLOWED=NO \
             | tee xcodebuild-test.log
 
