@@ -8,7 +8,7 @@ final class NotebookRepositoryTests: XCTestCase {
 
     override func setUpWithError() throws {
         db = try AppDatabase.makeInMemory()
-        repo = NotebookRepository(pool: db.pool)
+        repo = NotebookRepository(writer: db.writer)
     }
 
     func test_create_then_fetchAll_returns_one_notebook() throws {

@@ -2,14 +2,14 @@ import Foundation
 import GRDB
 
 final class PageRepository {
-    private let pool: DatabasePool
+    private let writer: any DatabaseWriter
 
-    init(pool: DatabasePool) {
-        self.pool = pool
+    init(writer: any DatabaseWriter) {
+        self.writer = writer
     }
 
     func fetchAll(notebookId: String) throws -> [Page] {
-        try pool.read { db in
+        try writer.read { db in
             try Page
                 .filter(Column("notebook_id") == notebookId)
                 .order(Column("page_index").asc)
@@ -18,13 +18,13 @@ final class PageRepository {
     }
 
     func fetch(id: String) throws -> Page? {
-        try pool.read { db in
+        try writer.read { db in
             try Page.fetchOne(db, key: id)
         }
     }
 
     func append(notebookId: String, template: PageTemplateKind) throws -> Page {
-        try pool.write { db in
+        try writer.write { db in
             let nextIndex = try Int.fetchOne(db, sql:
                 "SELECT COALESCE(MAX(page_index) + 1, 0) FROM pages WHERE notebook_id = ?",
                 arguments: [notebookId]
@@ -46,7 +46,7 @@ final class PageRepository {
     }
 
     func updateDrawing(pageId: String, drawing: Data, thumbnail: Data?) throws {
-        try pool.write { db in
+        try writer.write { db in
             try db.execute(sql: """
                 UPDATE pages
                    SET drawing_blob = ?, thumbnail_blob = ?, updated_at = ?
@@ -58,7 +58,7 @@ final class PageRepository {
     }
 
     func delete(id: String) throws {
-        try pool.write { db in
+        try writer.write { db in
             guard let page = try Page.fetchOne(db, key: id) else { return }
             try Page.deleteOne(db, key: id)
             // Re-number remaining pages so indexes stay contiguous.

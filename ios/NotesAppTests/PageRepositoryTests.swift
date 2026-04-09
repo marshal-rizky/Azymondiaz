@@ -10,8 +10,8 @@ final class PageRepositoryTests: XCTestCase {
 
     override func setUpWithError() throws {
         db = try AppDatabase.makeInMemory()
-        notebooks = NotebookRepository(pool: db.pool)
-        pages = PageRepository(pool: db.pool)
+        notebooks = NotebookRepository(writer: db.writer)
+        pages = PageRepository(writer: db.writer)
         notebookId = try notebooks.create(title: "NB", coverColor: "#123456").id
     }
 

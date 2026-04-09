@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 enum Migrations {
-    static func register(on pool: DatabasePool) throws {
+    static func register(on writer: any DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
 
         migrator.registerMigration("v1_initial_schema") { db in
@@ -48,6 +48,6 @@ enum Migrations {
             )
         }
 
-        try migrator.migrate(pool)
+        try migrator.migrate(writer)
     }
 }

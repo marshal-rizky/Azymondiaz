@@ -16,7 +16,9 @@ enum ThumbnailRenderer {
             height: (pageSize.height * scale).rounded()
         )
 
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0  // Fixed scale so PNG pixel dimensions always match targetSize.
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
         let image = renderer.image { ctx in
             // 1. Background template scaled to thumb size.
             let bg = PageTemplate.render(kind: template, size: targetSize, isDark: isDark)

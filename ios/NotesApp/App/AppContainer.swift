@@ -11,8 +11,8 @@ final class AppContainer {
 
     init(database: AppDatabase) {
         self.database = database
-        self.notebooks = NotebookRepository(pool: database.pool)
-        self.pages = PageRepository(pool: database.pool)
+        self.notebooks = NotebookRepository(writer: database.writer)
+        self.pages = PageRepository(writer: database.writer)
     }
 
     static func makeDefault() -> AppContainer {

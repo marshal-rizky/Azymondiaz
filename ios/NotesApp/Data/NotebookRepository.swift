@@ -2,10 +2,10 @@ import Foundation
 import GRDB
 
 final class NotebookRepository {
-    private let pool: DatabasePool
+    private let writer: any DatabaseWriter
 
-    init(pool: DatabasePool) {
-        self.pool = pool
+    init(writer: any DatabaseWriter) {
+        self.writer = writer
     }
 
     func create(title: String, coverColor: String) throws -> Notebook {
@@ -17,14 +17,14 @@ final class NotebookRepository {
             createdAt: now,
             updatedAt: now
         )
-        try pool.write { db in
+        try writer.write { db in
             try nb.insert(db)
         }
         return nb
     }
 
     func fetchAll() throws -> [Notebook] {
-        try pool.read { db in
+        try writer.read { db in
             try Notebook
                 .order(Column("updated_at").desc)
                 .fetchAll(db)
@@ -32,7 +32,7 @@ final class NotebookRepository {
     }
 
     func fetch(id: String) throws -> Notebook? {
-        try pool.read { db in
+        try writer.read { db in
             try Notebook.fetchOne(db, key: id)
         }
     }
@@ -40,13 +40,13 @@ final class NotebookRepository {
     func update(_ notebook: Notebook) throws {
         var copy = notebook
         copy.updatedAt = Date()
-        try pool.write { db in
+        try writer.write { db in
             try copy.update(db)
         }
     }
 
     func delete(id: String) throws {
-        _ = try pool.write { db in
+        _ = try writer.write { db in
             try Notebook.deleteOne(db, key: id)
         }
     }
