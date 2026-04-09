@@ -34,9 +34,10 @@ struct CanvasView: UIViewRepresentable {
         let canvas = PKCanvasView()
         canvas.drawing = drawing
         canvas.delegate = context.coordinator
-        // Gray outside the page area — visible when page is smaller than viewport.
-        canvas.backgroundColor = UIColor.secondarySystemBackground
-        canvas.isOpaque = true
+        // Transparent canvas so the SwiftUI .background() shows through as the
+        // gray "outside page" area. Setting opaque=true here blocks the bgView.
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
         canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
         canvas.alwaysBounceVertical = false
         canvas.contentSize = pageSize
@@ -61,7 +62,7 @@ struct CanvasView: UIViewRepresentable {
         context.coordinator.observedCanvas = canvas
 
         DispatchQueue.main.async {
-            guard canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
+            guard canvas.bounds.width > 0 else { return }
 
             // Fit the entire page on first appear; use as minimum so the user
             // cannot zoom out past the page boundary.

@@ -121,6 +121,7 @@ struct NotebookView: View {
                 pageSize: pageSize,
                 isDark: colorScheme == .dark
             )
+            .background(Color(.secondarySystemBackground))
         } else {
             Text("No page")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
