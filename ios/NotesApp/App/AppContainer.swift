@@ -5,11 +5,11 @@ import SwiftUI
 /// views can reach them via `@Environment(AppContainer.self)`.
 @Observable
 final class AppContainer {
-    let database: Database
+    let database: AppDatabase
     let notebooks: NotebookRepository
     let pages: PageRepository
 
-    init(database: Database) {
+    init(database: AppDatabase) {
         self.database = database
         self.notebooks = NotebookRepository(pool: database.pool)
         self.pages = PageRepository(pool: database.pool)
@@ -17,7 +17,7 @@ final class AppContainer {
 
     static func makeDefault() -> AppContainer {
         do {
-            let db = try Database.makeDefault()
+            let db = try AppDatabase.makeDefault()
             return AppContainer(database: db)
         } catch {
             fatalError("Failed to open database: \(error)")

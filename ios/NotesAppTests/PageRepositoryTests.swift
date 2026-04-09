@@ -3,13 +3,13 @@ import GRDB
 @testable import NotesApp
 
 final class PageRepositoryTests: XCTestCase {
-    private var db: Database!
+    private var db: AppDatabase!
     private var notebooks: NotebookRepository!
     private var pages: PageRepository!
     private var notebookId: String!
 
     override func setUpWithError() throws {
-        db = try Database.makeInMemory()
+        db = try AppDatabase.makeInMemory()
         notebooks = NotebookRepository(pool: db.pool)
         pages = PageRepository(pool: db.pool)
         notebookId = try notebooks.create(title: "NB", coverColor: "#123456").id

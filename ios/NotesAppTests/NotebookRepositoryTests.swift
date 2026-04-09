@@ -3,11 +3,11 @@ import GRDB
 @testable import NotesApp
 
 final class NotebookRepositoryTests: XCTestCase {
-    private var db: Database!
+    private var db: AppDatabase!
     private var repo: NotebookRepository!
 
     override func setUpWithError() throws {
-        db = try Database.makeInMemory()
+        db = try AppDatabase.makeInMemory()
         repo = NotebookRepository(pool: db.pool)
     }
 
