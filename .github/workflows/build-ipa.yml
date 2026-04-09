@@ -25,9 +25,20 @@ jobs:
         working-directory: ios
         run: |
           set -o pipefail
+          # Dynamically pick the first available iPad simulator so the job
+          # doesn't break when a specific runtime isn't cached on the runner.
+          SIM_ID=$(xcrun simctl list devices available -j | \
+            python3 -c "
+import json, sys
+devs = json.load(sys.stdin)['devices']
+for rt, ds in devs.items():
+    for d in ds:
+        if 'iPad' in d['name'] and d.get('isAvailable', False):
+            print(d['udid']); sys.exit(0)
+sys.exit(1)")
           xcodebuild test \
             -scheme NotesApp \
-            -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=latest' \
+            -destination "id=$SIM_ID" \
             CODE_SIGNING_ALLOWED=NO \
             | tee xcodebuild-test.log
 
