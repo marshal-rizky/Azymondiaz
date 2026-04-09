@@ -1,19 +1,24 @@
 import SwiftUI
 import PencilKit
 
-/// SwiftUI wrapper for the drawing canvas.
+/// SwiftUI wrapper for the PencilKit drawing canvas.
 ///
 /// Architecture:
-///   UIScrollView  (outer — owns ALL zoom and scroll)
-///     └── containerView  (returned by viewForZooming — both layers scale together)
-///           ├── UIImageView  (template background)
-///           └── PKCanvasView (isScrollEnabled=false — drawing only, no competing scroll)
+///   PKCanvasView  (root UIScrollView — owns zoom/scroll, PK re-renders strokes natively → sharp ink)
+///     └── UIImageView (template, tag 100 — manually resized on zoom via KVO)
 ///
-/// This ensures pinch-to-zoom scales both the template and the ink as a unit.
-/// The area outside the page shows the scroll view's background (system grouped).
+/// Why not an outer UIScrollView:
+///   UIScrollView zoom applies a GPU transform to the container bitmap.
+///   PencilKit only re-renders strokes when PKCanvasView.zoomScale changes directly.
+///   Wrapping PKCanvasView in another scroll view → blurry ink at any zoom > 1x.
 ///
-/// minimumZoomScale is set to fit-entire-page so the user cannot zoom out past the
-/// page boundary, which would expose blank background gaps.
+/// Template sharpness:
+///   KVO on zoomScale resizes the UIImageView frame immediately (cheap).
+///   A 0.15s debounced timer re-renders the template image at the new pixel size (sharp).
+///
+/// Initial positioning fix:
+///   After setZoomScale + centerPage, contentOffset is explicitly set so the page
+///   appears centered rather than off-screen.
 struct CanvasView: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     let allowsFingerDrawing: Bool
@@ -21,64 +26,63 @@ struct CanvasView: UIViewRepresentable {
     let pageSize: CGSize
     let isDark: Bool
 
-    private enum Tag: Int {
-        case container = 300, background = 100, canvas = 200
-    }
+    private static let bgTag = 100
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeUIView(context: Context) -> UIScrollView {
-        let scrollView = UIScrollView()
-        scrollView.maximumZoomScale = 5.0
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.backgroundColor = UIColor.systemGroupedBackground
-        scrollView.delegate = context.coordinator
-        scrollView.contentSize = pageSize
+    func makeUIView(context: Context) -> PKCanvasView {
+        let canvas = PKCanvasView()
+        canvas.drawing = drawing
+        canvas.delegate = context.coordinator
+        // Gray outside the page area — visible when page is smaller than viewport.
+        canvas.backgroundColor = UIColor.secondarySystemBackground
+        canvas.isOpaque = true
+        canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
+        canvas.alwaysBounceVertical = false
+        canvas.contentSize = pageSize
 
-        // Container — this is the single view that UIScrollView zooms.
-        let container = UIView(frame: CGRect(origin: .zero, size: pageSize))
-        container.tag = Tag.container.rawValue
-
-        // Template background.
+        // Template background at z=0. Frame kept in sync with zoom via KVO.
         let bgView = UIImageView(
             image: PageTemplate.render(kind: template, size: pageSize, isDark: isDark)
         )
         bgView.frame = CGRect(origin: .zero, size: pageSize)
-        bgView.tag = Tag.background.rawValue
-        container.addSubview(bgView)
+        bgView.tag = Self.bgTag
+        canvas.insertSubview(bgView, at: 0)
 
-        // PencilKit canvas — drawing only, scroll disabled so the outer
-        // UIScrollView handles all pan/zoom without conflict.
-        let canvas = PKCanvasView(frame: CGRect(origin: .zero, size: pageSize))
-        canvas.drawing = drawing
-        canvas.delegate = context.coordinator
-        canvas.backgroundColor = .clear
-        canvas.isOpaque = false
-        canvas.isScrollEnabled = false
-        canvas.alwaysBounceVertical = false
-        canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
-        canvas.tag = Tag.canvas.rawValue
-        container.addSubview(canvas)
-
-        scrollView.addSubview(container)
-
-        // Store refs in coordinator for updateUIView.
-        context.coordinator.canvas = canvas
         context.coordinator.bgView = bgView
 
-        DispatchQueue.main.async {
-            guard scrollView.bounds.width > 0, scrollView.bounds.height > 0 else { return }
-            // Fit entire page; use as minimum so the user cannot zoom out past the page.
-            let fitZoom = min(
-                scrollView.bounds.width  / pageSize.width,
-                scrollView.bounds.height / pageSize.height
-            )
-            scrollView.minimumZoomScale = fitZoom
-            scrollView.setZoomScale(fitZoom, animated: false)
-            context.coordinator.centerContent(in: scrollView)
+        // Observe PKCanvasView's zoom to resize template and re-center.
+        canvas.addObserver(
+            context.coordinator,
+            forKeyPath: #keyPath(UIScrollView.zoomScale),
+            options: [.new],
+            context: nil
+        )
+        context.coordinator.observedCanvas = canvas
 
-            // Attach tool picker.
+        DispatchQueue.main.async {
+            guard canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
+
+            // Fit the entire page on first appear; use as minimum so the user
+            // cannot zoom out past the page boundary.
+            let fitZoom = min(
+                canvas.bounds.width  / pageSize.width,
+                canvas.bounds.height / pageSize.height
+            )
+            canvas.minimumZoomScale = fitZoom
+            canvas.maximumZoomScale = 5.0
+            canvas.setZoomScale(fitZoom, animated: false)
+
+            // Set contentInset for centering, then explicitly position the
+            // viewport to show the page. Without the contentOffset reset,
+            // setZoomScale leaves contentOffset in an undefined state and the
+            // page appears off-screen.
+            context.coordinator.centerPage(in: canvas)
+            canvas.contentOffset = CGPoint(
+                x: -canvas.contentInset.left,
+                y: -canvas.contentInset.top
+            )
+
             if let window = canvas.window,
                let picker = PKToolPicker.shared(for: window) {
                 picker.setVisible(true, forFirstResponder: canvas)
@@ -86,28 +90,44 @@ struct CanvasView: UIViewRepresentable {
                 canvas.becomeFirstResponder()
             }
         }
-        return scrollView
+        return canvas
     }
 
-    func updateUIView(_ scrollView: UIScrollView, context: Context) {
-        guard let canvas = context.coordinator.canvas,
-              let bgView = context.coordinator.bgView else { return }
-
+    func updateUIView(_ canvas: PKCanvasView, context: Context) {
         if canvas.drawing != drawing {
             canvas.drawing = drawing
         }
         canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
-        bgView.image = PageTemplate.render(kind: template, size: pageSize, isDark: isDark)
+
+        // Re-render template when dark mode or template type changes.
+        let zoom = canvas.zoomScale > 0 ? canvas.zoomScale : 1
+        let currentSize = CGSize(width: pageSize.width * zoom, height: pageSize.height * zoom)
+        if let bgView = canvas.viewWithTag(Self.bgTag) as? UIImageView {
+            bgView.image = PageTemplate.render(kind: template, size: currentSize, isDark: isDark)
+            bgView.frame = CGRect(origin: .zero, size: currentSize)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: PKCanvasView, coordinator: Coordinator) {
+        coordinator.stopObserving()
+        coordinator.rerenderTimer?.invalidate()
     }
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate {
+    final class Coordinator: NSObject, PKCanvasViewDelegate {
         var parent: CanvasView
-        weak var canvas: PKCanvasView?
         weak var bgView: UIImageView?
+        weak var observedCanvas: PKCanvasView?
+        var rerenderTimer: Timer?
 
         init(_ parent: CanvasView) { self.parent = parent }
+
+        func stopObserving() {
+            guard let canvas = observedCanvas else { return }
+            canvas.removeObserver(self, forKeyPath: #keyPath(UIScrollView.zoomScale))
+            observedCanvas = nil
+        }
 
         // MARK: PKCanvasViewDelegate
 
@@ -115,24 +135,67 @@ struct CanvasView: UIViewRepresentable {
             parent.drawing = canvasView.drawing
         }
 
-        // MARK: UIScrollViewDelegate
+        // MARK: KVO — zoomScale
 
-        /// Tells UIScrollView which view to scale — the container holds both
-        /// template and canvas, so they zoom as a unit.
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-            scrollView.viewWithTag(Tag.container.rawValue)
+        override func observeValue(
+            forKeyPath keyPath: String?,
+            of object: Any?,
+            change: [NSKeyValueChangeKey: Any]?,
+            context: UnsafeMutableRawPointer?
+        ) {
+            guard keyPath == #keyPath(UIScrollView.zoomScale),
+                  let zoom = change?[.newKey] as? CGFloat,
+                  zoom > 0 else { return }
+
+            let newSize = CGSize(
+                width:  parent.pageSize.width  * zoom,
+                height: parent.pageSize.height * zoom
+            )
+
+            // Resize frame immediately — cheap, keeps template visually in sync.
+            bgView?.frame = CGRect(origin: .zero, size: newSize)
+
+            // Always keep contentSize equal to the current visual page size so
+            // the scrollable extent matches what the user can actually see.
+            // (The original conditional only grew contentSize, leaving empty
+            // scroll space when zooming out and showing the background color.)
+            if let canvas = object as? PKCanvasView {
+                canvas.contentSize = newSize
+                // Update centering insets in real time so the page stays
+                // centered while the pinch gesture is still in progress.
+                let insetX = max(0, (canvas.bounds.width  - newSize.width)  / 2)
+                let insetY = max(0, (canvas.bounds.height - newSize.height) / 2)
+                canvas.contentInset = UIEdgeInsets(
+                    top: insetY, left: insetX, bottom: insetY, right: insetX
+                )
+            }
+
+            // Debounce re-render: wait until zoom gesture settles, then redraw
+            // at the actual pixel size so the template is always crisp.
+            rerenderTimer?.invalidate()
+            rerenderTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.bgView?.image = PageTemplate.render(
+                    kind: self.parent.template,
+                    size: newSize,
+                    isDark: self.parent.isDark
+                )
+            }
         }
 
-        /// Keep the page centered when it is smaller than the scroll view.
-        func scrollViewDidZoom(_ scrollView: UIScrollView) {
-            centerContent(in: scrollView)
-        }
+        // MARK: Centering
 
-        func centerContent(in scrollView: UIScrollView) {
-            let offsetX = max(0, (scrollView.bounds.width  - scrollView.contentSize.width)  / 2)
-            let offsetY = max(0, (scrollView.bounds.height - scrollView.contentSize.height) / 2)
-            scrollView.contentInset = UIEdgeInsets(
-                top: offsetY, left: offsetX, bottom: offsetY, right: offsetX
+        /// Sets contentInset so the page is centered when smaller than the viewport.
+        func centerPage(in canvas: PKCanvasView) {
+            let zoom   = canvas.zoomScale > 0 ? canvas.zoomScale : 1
+            let scaled = CGSize(
+                width:  parent.pageSize.width  * zoom,
+                height: parent.pageSize.height * zoom
+            )
+            let insetX = max(0, (canvas.bounds.width  - scaled.width)  / 2)
+            let insetY = max(0, (canvas.bounds.height - scaled.height) / 2)
+            canvas.contentInset = UIEdgeInsets(
+                top: insetY, left: insetX, bottom: insetY, right: insetX
             )
         }
     }
