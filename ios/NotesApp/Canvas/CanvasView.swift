@@ -19,6 +19,8 @@ struct CanvasView: UIViewRepresentable {
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
+        canvas.minimumZoomScale = 0.5
+        canvas.maximumZoomScale = 5.0
         canvas.alwaysBounceVertical = false
 
         // Tool picker is attached when canvas becomes first responder.
