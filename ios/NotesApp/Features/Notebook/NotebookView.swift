@@ -106,28 +106,24 @@ struct NotebookView: View {
         }
     }
 
+    private let pageSize = CGSize(width: 1024, height: 1366)
+
     @ViewBuilder
     private func canvasArea(vm: NotebookViewModel) -> some View {
-        GeometryReader { geo in
-            ZStack {
-                if let page = vm.currentPage {
-                    Image(uiImage: PageTemplate.render(
-                        kind: page.template,
-                        size: geo.size,
-                        isDark: colorScheme == .dark
-                    ))
-                    .resizable()
-                    CanvasView(
-                        drawing: Binding(
-                            get: { vm.currentDrawing },
-                            set: { vm.currentDrawing = $0 }
-                        ),
-                        allowsFingerDrawing: false
-                    )
-                } else {
-                    Text("No page")
-                }
-            }
+        if let page = vm.currentPage {
+            CanvasView(
+                drawing: Binding(
+                    get: { vm.currentDrawing },
+                    set: { vm.currentDrawing = $0 }
+                ),
+                allowsFingerDrawing: false,
+                template: page.template,
+                pageSize: pageSize,
+                isDark: colorScheme == .dark
+            )
+        } else {
+            Text("No page")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
