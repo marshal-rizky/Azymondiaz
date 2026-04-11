@@ -1,82 +1,101 @@
 import Foundation
 import Security
 
-/// Thin Keychain wrapper for the handful of secrets this app stores.
-/// Never log values from here. Treat errors as non-fatal: a missing
-/// item returns nil/empty rather than throwing, so first-launch flows
-/// degrade gracefully.
-final class KeychainStore {
-    static let shared = KeychainStore()
-    private init() {}
+// MARK: - Storage protocol (injectable for tests)
 
-    private let service = "dev.user.NotesApp"
-    private enum Key: String {
-        case groqKeys   = "groq.keys.json"
-        case pcURL      = "pc.server.url"
-    }
+protocol SecretStorage {
+    func set(key: String, data: Data) throws
+    func get(key: String) throws -> Data?
+    func delete(key: String)
+}
 
-    enum KeychainError: Error { case unexpectedStatus(OSStatus) }
+// MARK: - Keychain backend (production)
 
-    // MARK: - Public
+final class KeychainStorage: SecretStorage {
+    private let service: String
+    enum Error: Swift.Error { case unexpectedStatus(OSStatus) }
 
-    func setGroqKeys(_ keys: [String]) throws {
-        let data = try JSONEncoder().encode(keys)
-        try set(key: .groqKeys, data: data)
-    }
+    init(service: String) { self.service = service }
 
-    func getGroqKeys() throws -> [String] {
-        guard let data = try get(key: .groqKeys) else { return [] }
-        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
-    }
-
-    func setPCServerURL(_ url: String) throws {
-        try set(key: .pcURL, data: Data(url.utf8))
-    }
-
-    func getPCServerURL() throws -> String? {
-        guard let data = try get(key: .pcURL) else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    func deleteAll() {
-        for key in [Key.groqKeys, .pcURL] {
-            let q: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: key.rawValue
-            ]
-            SecItemDelete(q as CFDictionary)
-        }
-    }
-
-    // MARK: - Private
-
-    private func set(key: Key, data: Data) throws {
+    func set(key: String, data: Data) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue
+            kSecAttrAccount as String: key
         ]
         SecItemDelete(query as CFDictionary)
         var add = query
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(add as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+        guard status == errSecSuccess else { throw Error.unexpectedStatus(status) }
     }
 
-    private func get(key: Key) throws -> Data? {
+    func get(key: String) throws -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccount as String: key,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+        guard status == errSecSuccess else { throw Error.unexpectedStatus(status) }
         return result as? Data
+    }
+
+    func delete(key: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+// MARK: - KeychainStore
+
+/// Thin wrapper that encodes/decodes app secrets and delegates raw storage.
+/// Inject a different SecretStorage in tests to avoid Keychain entitlement requirements.
+final class KeychainStore {
+    static let shared = KeychainStore(storage: KeychainStorage(service: "dev.user.NotesApp"))
+
+    private let storage: any SecretStorage
+    private enum Key: String {
+        case groqKeys = "groq.keys.json"
+        case pcURL    = "pc.server.url"
+    }
+
+    init(storage: any SecretStorage) {
+        self.storage = storage
+    }
+
+    // MARK: - Public
+
+    func setGroqKeys(_ keys: [String]) throws {
+        let data = try JSONEncoder().encode(keys)
+        try storage.set(key: Key.groqKeys.rawValue, data: data)
+    }
+
+    func getGroqKeys() throws -> [String] {
+        guard let data = try storage.get(key: Key.groqKeys.rawValue) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    func setPCServerURL(_ url: String) throws {
+        try storage.set(key: Key.pcURL.rawValue, data: Data(url.utf8))
+    }
+
+    func getPCServerURL() throws -> String? {
+        guard let data = try storage.get(key: Key.pcURL.rawValue) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func deleteAll() {
+        storage.delete(key: Key.groqKeys.rawValue)
+        storage.delete(key: Key.pcURL.rawValue)
     }
 }
