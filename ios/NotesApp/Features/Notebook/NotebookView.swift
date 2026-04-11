@@ -119,7 +119,7 @@ struct NotebookView: View {
                 allowsFingerDrawing: false,
                 template: page.template,
                 pageSize: pageSize,
-                isDark: colorScheme == .dark
+                isDark: false  // Page is always white; dark mode applies to chrome, not paper
             )
             .background(Color(.secondarySystemBackground))
         } else {

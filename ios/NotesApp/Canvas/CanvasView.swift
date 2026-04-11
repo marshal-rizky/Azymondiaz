@@ -99,14 +99,7 @@ struct CanvasView: UIViewRepresentable {
             canvas.drawing = drawing
         }
         canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
-
-        // Re-render template when dark mode or template type changes.
-        let zoom = canvas.zoomScale > 0 ? canvas.zoomScale : 1
-        let currentSize = CGSize(width: pageSize.width * zoom, height: pageSize.height * zoom)
-        if let bgView = canvas.viewWithTag(Self.bgTag) as? UIImageView {
-            bgView.image = PageTemplate.render(kind: template, size: currentSize, isDark: isDark)
-            bgView.frame = CGRect(origin: .zero, size: currentSize)
-        }
+        // Template re-render is handled by the KVO observer (debounced) and makeUIView.
     }
 
     static func dismantleUIView(_ uiView: PKCanvasView, coordinator: Coordinator) {
