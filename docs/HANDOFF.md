@@ -80,6 +80,31 @@ Full spec: `docs/specs/2026-04-07-ipad-ai-notes-design.md`
 
 ---
 
+## What was fixed in this session (2026-04-11)
+
+### Zoom bugs: bgView not tracking user pinch
+
+**Symptoms (from screen recording `ScreenRecording_04-11-2026 09-43-28_1.mov`):**
+- Zooming in: ink strokes scaled up and spread beyond page bounds; the white page (bgView) stayed at the original fit-zoom size
+- Page "slid around" during pinch gestures
+
+**Root cause:**
+KVO was registered on `UIScrollView.zoomScale`. PKCanvasView's internal pinch gesture does NOT update `zoomScale` via the normal KVO-observable property setter — it manages zoom internally. So KVO never fired during user pinch, bgView was never resized, and ink rendered at pinch scale while the template image stayed small.
+
+**Fix (commit `7773e61`):**
+Switched KVO target from `zoomScale` → `contentSize`. PK updates `contentSize` every frame during a pinch (as part of its internal scroll bookkeeping), so this fires reliably. bgView is now resized each frame from the new `contentSize` directly — no zoom scale calculation needed.
+
+**File:** `ios/NotesApp/Canvas/CanvasView.swift`
+- `addObserver` / `removeObserver` keyPath: `#keyPath(UIScrollView.contentSize)`
+- `observeValue`: reads `newSize` from change dict, sets `bgView?.frame` immediately, debounces template re-render + `centerPage` at 150ms
+
+**Status:** Fix committed and pushed. NEEDS TESTING on device — verify that:
+1. Pinching in shows page AND ink zooming together (bgView tracks ink)
+2. No page sliding during pinch (contentInset not updated mid-gesture, only in debounce)
+3. Template re-renders sharply after gesture settles
+
+---
+
 ## Next steps
 1. Start Plan C: `docs/plans/2026-04-07-plan-c-ipad-ai.md`
    - Task 1: Keychain store for secrets + PC URL
