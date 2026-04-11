@@ -139,41 +139,34 @@ struct CanvasView: UIViewRepresentable {
         ) {
             guard keyPath == #keyPath(UIScrollView.zoomScale),
                   let zoom = change?[.newKey] as? CGFloat,
-                  zoom > 0 else { return }
+                  zoom > 0,
+                  let canvas = object as? PKCanvasView else { return }
 
             let newSize = CGSize(
                 width:  parent.pageSize.width  * zoom,
                 height: parent.pageSize.height * zoom
             )
 
-            // Resize frame immediately — cheap, keeps template visually in sync.
+            // Resize bgView immediately — cheap, keeps template visually in sync.
             bgView?.frame = CGRect(origin: .zero, size: newSize)
 
-            // Always keep contentSize equal to the current visual page size so
-            // the scrollable extent matches what the user can actually see.
-            // (The original conditional only grew contentSize, leaving empty
-            // scroll space when zooming out and showing the background color.)
-            if let canvas = object as? PKCanvasView {
-                canvas.contentSize = newSize
-                // Update centering insets in real time so the page stays
-                // centered while the pinch gesture is still in progress.
-                let insetX = max(0, (canvas.bounds.width  - newSize.width)  / 2)
-                let insetY = max(0, (canvas.bounds.height - newSize.height) / 2)
-                canvas.contentInset = UIEdgeInsets(
-                    top: insetY, left: insetX, bottom: insetY, right: insetX
-                )
-            }
+            // Keep contentSize matched to zoomed page so scroll extent is correct.
+            // NOTE: contentInset is intentionally NOT updated here. Changing it
+            // mid-pinch causes UIScrollView to re-clamp contentOffset against the
+            // new insets, fighting PK's zoom-anchor offset → page slides.
+            canvas.contentSize = newSize
 
-            // Debounce re-render: wait until zoom gesture settles, then redraw
-            // at the actual pixel size so the template is always crisp.
+            // After zoom settles: re-render template at true pixel size (crisp)
+            // AND re-apply centering insets safely outside the active gesture.
             rerenderTimer?.invalidate()
-            rerenderTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
-                guard let self else { return }
+            rerenderTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self, weak canvas] _ in
+                guard let self, let canvas else { return }
                 self.bgView?.image = PageTemplate.render(
                     kind: self.parent.template,
                     size: newSize,
                     isDark: self.parent.isDark
                 )
+                self.centerPage(in: canvas)
             }
         }
 
