@@ -23,6 +23,13 @@ targets:
       - path: NotesApp
     resources:
       - path: NotesApp/Resources/Assets.xcassets
+      - path: NotesApp/Resources/prompts
+        type: folder
+        optional: true
+    preBuildScripts:
+      - name: "Bake server prompts into bundle"
+        path: Scripts/copy-prompts.sh
+        basedOnDependencyAnalysis: false
     info:
       path: NotesApp/Resources/Info.plist
       properties:
