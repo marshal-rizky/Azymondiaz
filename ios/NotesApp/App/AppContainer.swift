@@ -8,12 +8,14 @@ final class AppContainer {
     let database: AppDatabase
     let notebooks: NotebookRepository
     let pages: PageRepository
+    let aiMessages: AIMessageRepository
     var aiRouter: AIRouter
 
     init(database: AppDatabase) {
         self.database = database
         self.notebooks = NotebookRepository(writer: database.writer)
         self.pages = PageRepository(writer: database.writer)
+        self.aiMessages = AIMessageRepository(writer: database.writer)
         self.aiRouter = AIRouter.bootstrap()
     }
 
