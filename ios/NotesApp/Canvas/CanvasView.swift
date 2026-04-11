@@ -13,7 +13,7 @@ import PencilKit
 ///   Wrapping PKCanvasView in another scroll view → blurry ink at any zoom > 1x.
 ///
 /// Template sharpness:
-///   KVO on zoomScale resizes the UIImageView frame immediately (cheap).
+///   KVO on contentSize fires every zoom tick (user pinch + programmatic) — resizes bgView immediately.
 ///   A 0.15s debounced timer re-renders the template image at the new pixel size (sharp).
 ///
 /// Initial positioning fix:
@@ -52,10 +52,11 @@ struct CanvasView: UIViewRepresentable {
 
         context.coordinator.bgView = bgView
 
-        // Observe PKCanvasView's zoom to resize template and re-center.
+        // Observe contentSize — PK updates this on every zoom tick (user pinch or
+        // programmatic), whereas zoomScale KVO fires only for programmatic setZoomScale.
         canvas.addObserver(
             context.coordinator,
-            forKeyPath: #keyPath(UIScrollView.zoomScale),
+            forKeyPath: #keyPath(UIScrollView.contentSize),
             options: [.new],
             context: nil
         )
@@ -119,7 +120,7 @@ struct CanvasView: UIViewRepresentable {
 
         func stopObserving() {
             guard let canvas = observedCanvas else { return }
-            canvas.removeObserver(self, forKeyPath: #keyPath(UIScrollView.zoomScale))
+            canvas.removeObserver(self, forKeyPath: #keyPath(UIScrollView.contentSize))
             observedCanvas = nil
         }
 
@@ -129,7 +130,7 @@ struct CanvasView: UIViewRepresentable {
             parent.drawing = canvasView.drawing
         }
 
-        // MARK: KVO — zoomScale
+        // MARK: KVO — contentSize
 
         override func observeValue(
             forKeyPath keyPath: String?,
@@ -137,27 +138,19 @@ struct CanvasView: UIViewRepresentable {
             change: [NSKeyValueChangeKey: Any]?,
             context: UnsafeMutableRawPointer?
         ) {
-            guard keyPath == #keyPath(UIScrollView.zoomScale),
-                  let zoom = change?[.newKey] as? CGFloat,
-                  zoom > 0,
+            guard keyPath == #keyPath(UIScrollView.contentSize),
+                  let newSize = change?[.newKey] as? CGSize,
+                  newSize.width > 1, newSize.height > 1,
                   let canvas = object as? PKCanvasView else { return }
 
-            let newSize = CGSize(
-                width:  parent.pageSize.width  * zoom,
-                height: parent.pageSize.height * zoom
-            )
-
-            // Resize bgView immediately — cheap, keeps template visually in sync.
+            // PK sets contentSize on every zoom tick (user pinch fires this each frame).
+            // Resize bgView immediately so the template tracks the ink at all times.
             bgView?.frame = CGRect(origin: .zero, size: newSize)
-
-            // Keep contentSize matched to zoomed page so scroll extent is correct.
-            // NOTE: contentInset is intentionally NOT updated here. Changing it
-            // mid-pinch causes UIScrollView to re-clamp contentOffset against the
-            // new insets, fighting PK's zoom-anchor offset → page slides.
-            canvas.contentSize = newSize
 
             // After zoom settles: re-render template at true pixel size (crisp)
             // AND re-apply centering insets safely outside the active gesture.
+            // contentInset is intentionally NOT set here — changing it mid-pinch
+            // causes UIScrollView to re-clamp contentOffset, making the page slide.
             rerenderTimer?.invalidate()
             rerenderTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self, weak canvas] _ in
                 guard let self, let canvas else { return }
