@@ -16,7 +16,18 @@ Full spec: `docs/specs/2026-04-07-ipad-ai-notes-design.md`
   - Pinch-to-zoom works: ink stays sharp (PKCanvasView native zoom), template re-renders sharp after gesture
   - Run: CI → Actions tab → download `NotesApp-ipa` artifact → sideload via KSign
 
-- **Plan C (AI integration into iOS):** Not started. Plan written at `docs/plans/2026-04-07-plan-c-ipad-ai.md`
+- **Plan C (AI integration into iOS):** COMPLETE. All 15 tasks implemented and CI green.
+  - Keychain store (injectable `SecretStorage` protocol), KeyPool (5-slot rotation), AIClient protocol
+  - `PCServerAIClient` (home, 1.5s ping probe), `GroqFallbackAIClient` (school fallback, direct Groq REST)
+  - `AIRouter` (@Observable, reachability probe, no silent downgrade, routing banner)
+  - Baked prompts (`ios/Scripts/copy-prompts.sh` → bundle resource), `BakedPrompts.swift`
+  - Lasso transform: `LassoRasterizer` → `LassoMenuView` (7 actions) → `TransformResultView` popover
+  - Chat panel: `ChatContextBuilder`, `ChatViewModel`, `ChatPanelView` (scope picker, bubble UI)
+  - Voice input: `VoiceRecorder` (AVAudioRecorder, hold-to-talk), `MicButton`
+  - Sync: `SyncDiff`, `SyncClient` (push), `SyncScheduler` (5-min timer)
+  - `AppContainer` wired: `aiMessages`, `aiRouter`, `syncClient`, `syncScheduler`
+  - `SettingsView`: PC URL, Groq keys, voice language, routing label, sync now button
+  - ⚠️ AI features require runtime config (PC URL or Groq keys in Settings) before use — see smoke checklist
 
 ## Key files
 - Plans: `docs/plans/`
@@ -80,36 +91,54 @@ Full spec: `docs/specs/2026-04-07-ipad-ai-notes-design.md`
 
 ---
 
-## What was fixed in this session (2026-04-11)
+## What was done in this session (2026-04-11)
 
-### Zoom bugs: bgView not tracking user pinch
+### Canvas bug fixes
 
-**Symptoms (from screen recording `ScreenRecording_04-11-2026 09-43-28_1.mov`):**
-- Zooming in: ink strokes scaled up and spread beyond page bounds; the white page (bgView) stayed at the original fit-zoom size
-- Page "slid around" during pinch gestures
+**Bug 1 — Template not updating between pages**
+`updateUIView` was not re-rendering `bgView` when the template or dark-mode setting changed because `coord.parent` was stale. Fixed by syncing `coord.parent = self` at the top of `updateUIView` and re-rendering when template/isDark changes.
 
-**Root cause:**
-KVO was registered on `UIScrollView.zoomScale`. PKCanvasView's internal pinch gesture does NOT update `zoomScale` via the normal KVO-observable property setter — it manages zoom internally. So KVO never fired during user pinch, bgView was never resized, and ink rendered at pinch scale while the template image stayed small.
-
-**Fix (commit `7773e61`):**
-Switched KVO target from `zoomScale` → `contentSize`. PK updates `contentSize` every frame during a pinch (as part of its internal scroll bookkeeping), so this fires reliably. bgView is now resized each frame from the new `contentSize` directly — no zoom scale calculation needed.
+**Bug 2 — Lines multiplying on zoom**
+KVO was on `UIScrollView.zoomScale`, which PKCanvasView does not update via the normal KVO path during user pinch. Switched to `#keyPath(UIScrollView.contentSize)` — PK updates this every frame during pinch. Template now resizes from `contentSize` directly; no zoom-scale arithmetic needed. Debounced re-render at 150ms after gesture settles keeps template sharp.
 
 **File:** `ios/NotesApp/Canvas/CanvasView.swift`
-- `addObserver` / `removeObserver` keyPath: `#keyPath(UIScrollView.contentSize)`
-- `observeValue`: reads `newSize` from change dict, sets `bgView?.frame` immediately, debounces template re-render + `centerPage` at 150ms
 
-**Status:** Fix committed and pushed. NEEDS TESTING on device — verify that:
-1. Pinching in shows page AND ink zooming together (bgView tracks ink)
-2. No page sliding during pinch (contentInset not updated mid-gesture, only in debounce)
-3. Template re-renders sharply after gesture settles
+### Plan C — AI integration (all 15 tasks)
+
+Implemented in full on top of Plan B. Key files added/modified:
+
+| Area | Files |
+|------|-------|
+| Secrets | `AI/KeychainStore.swift` (injectable `SecretStorage` protocol) |
+| Key rotation | `AI/KeyPool.swift` (5-slot, cooldown, error tracking) |
+| AI layer | `AI/AIModels.swift`, `AI/AIClient.swift`, `AI/PCServerAIClient.swift`, `AI/GroqFallbackAIClient.swift` |
+| Routing | `AI/AIRouter.swift` (@Observable, reachability probe, no silent downgrade) |
+| Prompts | `AI/BakedPrompts.swift`, `Scripts/copy-prompts.sh` |
+| Canvas lasso | `Canvas/LassoRasterizer.swift`, `Features/Notebook/LassoMenuView.swift`, `Features/Notebook/TransformResultView.swift` |
+| Chat | `Features/Chat/ChatContextBuilder.swift`, `Features/Chat/ChatViewModel.swift`, `Features/Chat/ChatPanelView.swift` |
+| Voice | `Features/Voice/VoiceRecorder.swift`, `Features/Voice/MicButton.swift` |
+| Sync | `Sync/SyncDiff.swift`, `Sync/SyncClient.swift`, `Sync/SyncScheduler.swift` |
+| Wiring | `App/AppContainer.swift`, `Features/Settings/SettingsView.swift` |
+| Data | `Data/AIMessage.swift`, `Data/AIMessageRepository.swift` |
+
+### CI — Keychain test fix
+
+`KeychainStoreTests` was calling `KeychainStore.shared` which hits the real Keychain API. CI runners use ad-hoc signing which does not embed entitlements → `errSecMissingEntitlement (-34018)` → test failure. Fix: introduced `SecretStorage` protocol + `InMemoryStorage` (test-only dictionary backend). Tests now inject `KeychainStore(storage: InMemoryStorage())` — no Keychain API touched in CI.
 
 ---
 
-## Next steps
-1. Start Plan C: `docs/plans/2026-04-07-plan-c-ipad-ai.md`
-   - Task 1: Keychain store for secrets + PC URL
-   - Task 2: KeyPool (5-slot Groq key rotation)
-   - Task 3: AIClient protocol + PCServerAIClient + GroqFallbackAIClient
-   - Task 4: AIRouter (reachability probe, auto-switch home ↔ school)
-   - ... (15 tasks total, full TDD)
-2. Run server (`cd server && .venv/Scripts/activate && uvicorn notes_server.server:app --reload`) before testing AI features
+## Known issues / next steps
+
+- **AI features need runtime config before use.** After sideloading, go to Settings and enter either:
+  - PC URL (e.g. `http://192.168.x.x:8000`) — requires PC server running (`cd server && uvicorn notes_server.server:app --reload`)
+  - One or more Groq API keys — for school / offline-PC fallback
+- **Smoke checklist items for Plan C** (`docs/smoke-checklist.md`) have NOT yet been run end-to-end on device. Run them after configuring keys.
+- Sync pull (restore after reinstall) is server-side only — not yet wired on the iOS side (Plan A's `/sync/pull` endpoint exists; iOS client for pull not implemented).
+
+## Server quick-start reminder
+
+```bash
+cd server
+.venv/Scripts/activate   # Windows
+uvicorn notes_server.server:app --reload
+```
