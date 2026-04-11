@@ -100,7 +100,16 @@ struct CanvasView: UIViewRepresentable {
             canvas.drawing = drawing
         }
         canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
-        // Template re-render is handled by the KVO observer (debounced) and makeUIView.
+
+        let coord = context.coordinator
+        // Re-render bgView if template kind or dark mode changed.
+        if template != coord.parent.template || isDark != coord.parent.isDark {
+            if let bgView = canvas.viewWithTag(Self.bgTag) as? UIImageView {
+                bgView.image = PageTemplate.render(kind: template, size: pageSize, isDark: isDark)
+            }
+        }
+        // Keep coordinator's parent current so KVO callbacks use latest values.
+        coord.parent = self
     }
 
     static func dismantleUIView(_ uiView: PKCanvasView, coordinator: Coordinator) {
@@ -156,7 +165,7 @@ struct CanvasView: UIViewRepresentable {
                 guard let self, let canvas else { return }
                 self.bgView?.image = PageTemplate.render(
                     kind: self.parent.template,
-                    size: newSize,
+                    size: self.parent.pageSize,
                     isDark: self.parent.isDark
                 )
                 self.centerPage(in: canvas)
