@@ -15,7 +15,7 @@ final class SyncClient {
     struct PushResponse: Decodable { let acceptedAt: Date? }
 
     func push() async throws -> Date {
-        let lastSync = try writer.read { db in
+        let lastSync = try await writer.read { db in
             try Date.fetchOne(db, sql: "SELECT last_sync_at FROM sync_state WHERE id = 1")
         }
         let diff = try SyncDiff.compute(writer: writer, since: lastSync)
@@ -34,7 +34,7 @@ final class SyncClient {
             throw AIError.http((response as? HTTPURLResponse)?.statusCode ?? -1, "sync push failed")
         }
         let now = Date()
-        try writer.write { db in
+        try await writer.write { db in
             try db.execute(sql: "UPDATE sync_state SET last_sync_at = ? WHERE id = 1", arguments: [now])
         }
         return now
