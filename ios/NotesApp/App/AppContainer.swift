@@ -8,11 +8,13 @@ final class AppContainer {
     let database: AppDatabase
     let notebooks: NotebookRepository
     let pages: PageRepository
+    var aiRouter: AIRouter
 
     init(database: AppDatabase) {
         self.database = database
         self.notebooks = NotebookRepository(writer: database.writer)
         self.pages = PageRepository(writer: database.writer)
+        self.aiRouter = AIRouter.bootstrap()
     }
 
     static func makeDefault() -> AppContainer {
@@ -22,5 +24,10 @@ final class AppContainer {
         } catch {
             fatalError("Failed to open database: \(error)")
         }
+    }
+
+    /// Call after the user changes PC URL or keys in Settings.
+    func reloadAI() {
+        self.aiRouter = AIRouter.bootstrap()
     }
 }
