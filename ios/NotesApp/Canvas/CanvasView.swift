@@ -25,6 +25,8 @@ struct CanvasView: UIViewRepresentable {
     let template: PageTemplateKind
     let pageSize: CGSize
     let isDark: Bool
+    /// Called from the AI toolbar button. Returns full page drawing + bounds as context.
+    var onRequestSelection: ((_ drawing: PKDrawing, _ bounds: CGRect) -> Void)? = nil
 
     private static let bgTag = 100
 
@@ -126,6 +128,17 @@ struct CanvasView: UIViewRepresentable {
         var rerenderTimer: Timer?
 
         init(_ parent: CanvasView) { self.parent = parent }
+
+        /// Called by NotebookView's AI toolbar button. Returns the current
+        /// drawing as context for transform requests.
+        func currentSelection() -> (PKDrawing, CGRect)? {
+            guard let canvas = observedCanvas else { return nil }
+            let drawing = canvas.drawing
+            let bounds = drawing.bounds.isEmpty
+                ? CGRect(origin: .zero, size: parent.pageSize)
+                : drawing.bounds.insetBy(dx: -10, dy: -10)
+            return (drawing, bounds)
+        }
 
         func stopObserving() {
             guard let canvas = observedCanvas else { return }

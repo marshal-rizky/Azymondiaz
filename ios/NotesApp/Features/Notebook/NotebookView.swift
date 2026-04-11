@@ -10,23 +10,49 @@ struct NotebookView: View {
     @State private var showingShareSheet = false
     @State private var pdfData: Data?
 
+    // AI state
+    @State private var showingLassoMenu = false
+    @State private var showingTransformResult: TransformResponse? = nil
+    @State private var transformInFlight = false
+    @State private var transformError: String? = nil
+    @State private var showingChat = false
+
     var body: some View {
         HStack(spacing: 0) {
-            if let vm = viewModel {
-                pageStrip(vm: vm)
-                    .frame(width: 140)
-                    .background(Color(.secondarySystemBackground))
+            mainContent
+            if showingChat, let vm = viewModel, let page = vm.currentPage {
                 Divider()
-                canvasArea(vm: vm)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
+                ChatPanelView(
+                    viewModel: ChatViewModel(
+                        page: page,
+                        notebookPages: vm.pages,
+                        repo: container.aiMessages,
+                        router: container.aiRouter
+                    ),
+                    onClose: { showingChat = false }
+                )
+                .transition(.move(edge: .trailing))
             }
         }
         .navigationTitle(notebook.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let vm = viewModel {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingChat.toggle()
+                    } label: {
+                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingLassoMenu = true
+                    } label: {
+                        Label("AI", systemImage: "sparkles")
+                    }
+                    .disabled(transformInFlight)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Line") { vm.addPage(template: .line) }
@@ -67,7 +93,74 @@ struct NotebookView: View {
                 ShareSheet(items: [PDFActivityItem(data: data, title: notebook.title)])
             }
         }
+        .popover(isPresented: $showingLassoMenu) {
+            LassoMenuView(
+                onSelect: { action in Task { await runTransform(action: action) } },
+                onDismiss: { showingLassoMenu = false }
+            )
+            .presentationCompactAdaptation(.popover)
+        }
+        .sheet(item: Binding(
+            get: { showingTransformResult.map { IdentifiableResponse(wrapped: $0) } },
+            set: { showingTransformResult = $0?.wrapped }
+        )) { item in
+            TransformResultView(
+                response: item.wrapped,
+                onInsertBelow: { text in
+                    UIPasteboard.general.string = text
+                    showingTransformResult = nil
+                },
+                onReplace: { text in
+                    UIPasteboard.general.string = text
+                    showingTransformResult = nil
+                },
+                onDismiss: { showingTransformResult = nil }
+            )
+            .presentationDetents([.medium, .large])
+        }
+        .alert("AI error", isPresented: Binding(
+            get: { transformError != nil },
+            set: { if !$0 { transformError = nil } }
+        ), actions: {
+            Button("OK") { transformError = nil }
+        }, message: {
+            Text(transformError ?? "")
+        })
     }
+
+    // MARK: - Main content
+
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            if container.aiRouter.activeLabel == "groq" {
+                Text("Using Groq fallback")
+                    .font(.caption)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.orange.opacity(0.2))
+            } else if container.aiRouter.activeLabel == "offline" {
+                Text("AI offline — configure in Settings")
+                    .font(.caption)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.gray.opacity(0.2))
+            }
+            HStack(spacing: 0) {
+                if let vm = viewModel {
+                    pageStrip(vm: vm)
+                        .frame(width: 140)
+                        .background(Color(.secondarySystemBackground))
+                    Divider()
+                    canvasArea(vm: vm)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    // MARK: - Page strip
 
     private func pageStrip(vm: NotebookViewModel) -> some View {
         ScrollView {
@@ -108,6 +201,8 @@ struct NotebookView: View {
 
     private let pageSize = CGSize(width: 1024, height: 1366)
 
+    // MARK: - Canvas area
+
     @ViewBuilder
     private func canvasArea(vm: NotebookViewModel) -> some View {
         if let page = vm.currentPage {
@@ -127,6 +222,40 @@ struct NotebookView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+
+    // MARK: - AI transform
+
+    private struct IdentifiableResponse: Identifiable {
+        let id = UUID()
+        let wrapped: TransformResponse
+    }
+
+    @MainActor
+    private func runTransform(action: AIAction) async {
+        guard let vm = viewModel else { return }
+        vm.flushSave()
+        let drawing = vm.currentDrawing
+        let bounds = drawing.bounds.isEmpty
+            ? CGRect(origin: .zero, size: pageSize)
+            : drawing.bounds.insetBy(dx: -10, dy: -10)
+        let base64 = LassoRasterizer.rasterize(selection: drawing, bounds: bounds)
+        guard !base64.isEmpty else {
+            transformError = "Nothing to transform — draw something first."
+            return
+        }
+        transformInFlight = true
+        defer { transformInFlight = false }
+        do {
+            let response = try await container.aiRouter.transform(
+                TransformRequest(action: action, imageBase64: base64, contextText: nil)
+            )
+            showingTransformResult = response
+        } catch {
+            transformError = error.localizedDescription
+        }
+    }
+
+    // MARK: - PDF export
 
     private func exportPDF(vm: NotebookViewModel) {
         vm.flushSave()
