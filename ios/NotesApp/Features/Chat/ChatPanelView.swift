@@ -1,0 +1,89 @@
+import SwiftUI
+
+struct ChatPanelView: View {
+    @Bindable var viewModel: ChatViewModel
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(viewModel.messages) { msg in
+                            bubble(msg: msg).id(msg.id)
+                        }
+                    }
+                    .padding()
+                }
+                .onChange(of: viewModel.messages.count) { _, _ in
+                    if let last = viewModel.messages.last {
+                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                    }
+                }
+            }
+            Divider()
+            inputBar
+        }
+        .frame(width: 360)
+        .background(Color(.systemBackground))
+        .onAppear { viewModel.load() }
+        .alert("Chat error", isPresented: Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.errorMessage = nil } }
+        ), actions: { Button("OK") {} }, message: {
+            Text(viewModel.errorMessage ?? "")
+        })
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Chat").font(.headline)
+            Picker("Scope", selection: $viewModel.scope) {
+                Text("Page").tag(ChatScope.page)
+                Text("Notebook").tag(ChatScope.notebook)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 200)
+            Spacer()
+            Button { onClose() } label: {
+                Image(systemName: "xmark")
+            }
+        }
+        .padding(12)
+    }
+
+    @ViewBuilder
+    private func bubble(msg: AIMessage) -> some View {
+        let isUser = msg.role == .user
+        HStack {
+            if isUser { Spacer() }
+            Text(msg.text)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(isUser ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(maxWidth: 280, alignment: isUser ? .trailing : .leading)
+            if !isUser { Spacer() }
+        }
+    }
+
+    private var inputBar: some View {
+        HStack(spacing: 8) {
+            MicButton { audio in
+                Task { await viewModel.transcribe(audio: audio) }
+            }
+            TextField("Ask anything…", text: $viewModel.inputText, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...4)
+            Button {
+                Task { await viewModel.send() }
+            } label: {
+                Image(systemName: "arrow.up.circle.fill").font(.title2)
+            }
+            .disabled(viewModel.isSending || viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(12)
+    }
+}
