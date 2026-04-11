@@ -46,3 +46,43 @@ Run after every install. Expected time: ~5 minutes.
 ---
 
 If any item fails, open an issue and do NOT ship. Fixing Tier 1 tests to catch the regression is preferred over a re-test loop.
+
+---
+
+## Plan C additions
+
+### Routing banner
+- [ ] With PC reachable: banner hidden
+- [ ] Turn off PC server: banner reads "Using Groq fallback"
+- [ ] Remove all Groq keys: banner reads "AI offline — configure in Settings"
+
+### Lasso transform
+- [ ] Draw a simple arithmetic problem (e.g., "23 × 17")
+- [ ] Tap AI button → Math mode → result appears in popover within ~10s
+- [ ] "Dismiss" closes without changing ink
+- [ ] "Insert below" / "Replace" copy the result to the pasteboard
+
+### Chat panel
+- [ ] Toggle chat → panel slides in from right
+- [ ] Ask "what is 2+2?" in English → correct reply
+- [ ] Ask in Indonesian — reply in Indonesian
+- [ ] Toggle scope to Notebook → ask about content across pages
+- [ ] Close and re-open the page → chat history persists
+- [ ] Messages are cascade-deleted when the page is deleted
+
+### Voice input
+- [ ] Hold mic button → red waveform pulses
+- [ ] Release → transcript appears in input field
+- [ ] Edit transcript then send normally
+- [ ] Speak a mixed-language sentence — verify transcript
+
+### Sync
+- [ ] Configure PC URL in Settings, save
+- [ ] Draw on a page, wait 30s, hit "Sync now"
+- [ ] Verify on PC that `server/storage.sqlite` (or equivalent) contains the new page
+- [ ] Delete app + reinstall → (manual) use Plan A's `/sync/pull` to restore
+
+### Baked prompts smoke
+- [ ] Turn off PC, turn off internet briefly to verify AI is grayed out
+- [ ] Turn internet back on, verify Groq fallback still produces results
+  (prompts used are the baked-in snapshot, not the PC's live versions)
