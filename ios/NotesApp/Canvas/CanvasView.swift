@@ -238,13 +238,16 @@ struct CanvasView: UIViewRepresentable {
             )
             guard viewRect.width > 5, viewRect.height > 5 else { return nil }
 
-            // Convert view-space rect → drawing coordinate space.
-            // drawing_x = (view_x + contentOffset.x) / zoomScale
-            // contentOffset already encodes the centering inset, so no separate inset term needed.
+            // Convert to drawing coordinate space.
+            // sender.location(in: canvas) returns bounds-coordinate values.
+            // UIScrollView sets bounds.origin = contentOffset, so contentOffset is
+            // already embedded in every point from location(in: canvas). Do NOT add
+            // it again — that would double-count and shift the rect into empty space.
+            // Dividing by zoomScale converts content coords → PKDrawing coords.
             let z = canvas.zoomScale > 0 ? canvas.zoomScale : 1
             return CGRect(
-                x: (viewRect.minX + canvas.contentOffset.x) / z,
-                y: (viewRect.minY + canvas.contentOffset.y) / z,
+                x: viewRect.minX / z,
+                y: viewRect.minY / z,
                 width: viewRect.width / z,
                 height: viewRect.height / z
             )
