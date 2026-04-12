@@ -150,13 +150,48 @@ Lasso menu `.popover` was attached to the whole view body — SwiftUI positioned
 
 ---
 
+## What was fixed in this session (2026-04-12, continued)
+
+### 1. Lasso selection always sending full page to AI
+**Root cause:** `canvasViewDrawingDidChange` called `onSelectionBoundsChanged?(nil)` unconditionally. PencilKit fires this delegate when a lasso *selects* strokes (changes drawing selection state), wiping the bounds set in `handleLassoGesture` before `runTransform` could use them.
+**Fix:** Only clear lasso bounds in `canvasViewDrawingDidChange` when the current tool is NOT `PKLassoTool`.
+**File:** `ios/NotesApp/Canvas/CanvasView.swift`
+
+### 2. AI output was plain text — LaTeX/markdown not rendered
+**Fix:** New `MathWebView.swift` — `UIViewRepresentable` wrapping `WKWebView` that renders content via KaTeX + marked from jsDelivr CDN (internet already required for AI). `TransformResultView` now uses it. Chat assistant bubbles use `MathWebView` when math is detected (`$` or `\`), otherwise `AttributedString` for basic markdown.
+**Files:** `ios/NotesApp/AI/MathWebView.swift`, `ios/NotesApp/Features/Notebook/TransformResultView.swift`, `ios/NotesApp/Features/Chat/ChatPanelView.swift`
+
+### 3. Chat panel blank on open; full page attached every message
+- Added synthetic welcome message in `ChatViewModel.load()` when no prior history exists.
+- Context image (page/selection crop) now attached only on the **first** message per session (`contextAttached` flag). Follow-up messages are text-only — cheaper and the model already has context.
+**File:** `ios/NotesApp/Features/Chat/ChatViewModel.swift`
+
+### 4. App crash when AI result appeared
+**Root cause:** `MathWebView` called `JSONSerialization.data(withJSONObject: someString)`. `JSONSerialization` requires `NSDictionary` or `NSArray` at top level — passing a bare `String` throws `NSInvalidArgumentException` (an ObjC exception). Swift's `try?` catches Swift `Error` only, not ObjC exceptions → unconditional crash whenever a transform result or math chat bubble appeared.
+**Fix:** Replaced with `JSONEncoder().encode(content)` which handles `String` natively.
+**File:** `ios/NotesApp/AI/MathWebView.swift`
+
+### 5. Lasso → AI → auto-open chat with selection context (new feature)
+Sparkles button is now context-aware:
+- **Lasso active** → rasterize selection → open chat with crop as context image. Welcome message says "I can see your selection."
+- **No lasso** → show transform menu (existing behavior, unchanged)
+
+`ChatViewModel` accepts optional `overrideContextBase64` — when set, sends the lasso crop as first-message context instead of full-page render.
+
+Also fixed a race: `.onChange(of: showingChat)` now skips rebuilding `chatVM` if one was already pre-set by the lasso path (prevents overwriting lasso context with full-page context).
+**Files:** `ios/NotesApp/Features/Notebook/NotebookView.swift`, `ios/NotesApp/Features/Chat/ChatViewModel.swift`
+
+---
+
 ## Known issues / next steps
 
+- **A few bugs remain** — user to specify at start of next session.
 - **AI features need runtime config before use.** After sideloading, go to Settings and enter either:
   - PC URL (e.g. `http://192.168.x.x:8000`) — requires PC server running (`cd server && uvicorn notes_server.server:app --reload`)
   - One or more Groq API keys — for school / offline-PC fallback
 - **Smoke checklist items for Plan C** (`docs/smoke-checklist.md`) have NOT yet been run end-to-end on device. Run them after configuring keys.
 - Sync pull (restore after reinstall) is server-side only — not yet wired on the iOS side (Plan A's `/sync/pull` endpoint exists; iOS client for pull not implemented).
+- MathWebView CDN rendering: KaTeX + marked load from jsDelivr CDN. Falls back to blank if offline (AI features also need internet, so this is acceptable). Future: consider bundling KaTeX locally.
 
 ## Server quick-start reminder
 
