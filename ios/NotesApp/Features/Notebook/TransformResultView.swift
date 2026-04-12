@@ -5,6 +5,7 @@ struct TransformResultView: View {
     let onInsertBelow: (String) -> Void
     let onReplace: (String) -> Void
     let onDismiss: () -> Void
+    var onSendToChat: ((String) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -23,6 +24,10 @@ struct TransformResultView: View {
                     .buttonStyle(.borderedProminent)
                 Button("Replace") { onReplace(payloadText) }
                     .buttonStyle(.bordered)
+                if let sendToChat = onSendToChat {
+                    Button("Ask in Chat") { sendToChat(payloadText) }
+                        .buttonStyle(.bordered)
+                }
                 Spacer()
                 Button("Dismiss") { onDismiss() }
             }

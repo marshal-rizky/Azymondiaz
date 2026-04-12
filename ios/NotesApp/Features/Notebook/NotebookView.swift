@@ -43,17 +43,7 @@ struct NotebookView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        if let sel = lassoSelectionBounds, sel.width > 5, sel.height > 5 {
-                            // Lasso active → open chat with the selected region as context.
-                            let drawing = vm.currentDrawing
-                            let base64 = LassoRasterizer.rasterize(selection: drawing, bounds: sel)
-                            if !base64.isEmpty {
-                                rebuildChatVM(lassoBase64: base64)
-                                withAnimation { showingChat = true }
-                            }
-                        } else {
-                            showingLassoMenu = true
-                        }
+                        showingLassoMenu = true
                     } label: {
                         Label("AI", systemImage: "sparkles")
                     }
@@ -103,7 +93,7 @@ struct NotebookView: View {
         }
         .onChange(of: showingChat) { _, isShowing in
             if isShowing {
-                // Only build if not already pre-set (e.g. lasso → open chat path).
+                // Only build if not already pre-set (e.g. "Ask in Chat" from transform result).
                 if chatVM == nil { rebuildChatVM() }
             } else {
                 chatVM = nil
@@ -131,7 +121,13 @@ struct NotebookView: View {
                     UIPasteboard.general.string = text
                     showingTransformResult = nil
                 },
-                onDismiss: { showingTransformResult = nil }
+                onDismiss: { showingTransformResult = nil },
+                onSendToChat: { text in
+                    showingTransformResult = nil
+                    if chatVM == nil { rebuildChatVM() }
+                    chatVM?.inputText = text
+                    withAnimation { showingChat = true }
+                }
             )
             .presentationDetents([.medium, .large])
         }
