@@ -16,7 +16,10 @@ struct MathWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: content),
+        // JSONEncoder handles bare String correctly (produces a quoted JSON string).
+        // JSONSerialization requires NSArray/NSDictionary at top level and throws
+        // an NSException for plain strings — which Swift's try? does NOT catch → crash.
+        guard let jsonData = try? JSONEncoder().encode(content),
               let jsonStr = String(data: jsonData, encoding: .utf8) else { return }
         webView.loadHTMLString(Self.html(jsonStr), baseURL: URL(string: "https://cdn.jsdelivr.net"))
     }

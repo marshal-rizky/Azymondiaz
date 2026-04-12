@@ -43,7 +43,17 @@ struct NotebookView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showingLassoMenu = true
+                        if let sel = lassoSelectionBounds, sel.width > 5, sel.height > 5 {
+                            // Lasso active → open chat with the selected region as context.
+                            let drawing = vm.currentDrawing
+                            let base64 = LassoRasterizer.rasterize(selection: drawing, bounds: sel)
+                            if !base64.isEmpty {
+                                rebuildChatVM(lassoBase64: base64)
+                                withAnimation { showingChat = true }
+                            }
+                        } else {
+                            showingLassoMenu = true
+                        }
                     } label: {
                         Label("AI", systemImage: "sparkles")
                     }
@@ -93,7 +103,8 @@ struct NotebookView: View {
         }
         .onChange(of: showingChat) { _, isShowing in
             if isShowing {
-                rebuildChatVM()
+                // Only build if not already pre-set (e.g. lasso → open chat path).
+                if chatVM == nil { rebuildChatVM() }
             } else {
                 chatVM = nil
             }
@@ -240,13 +251,14 @@ struct NotebookView: View {
     }
 
     @MainActor
-    private func rebuildChatVM() {
+    private func rebuildChatVM(lassoBase64: String? = nil) {
         guard let vm = viewModel, let page = vm.currentPage else { return }
         chatVM = ChatViewModel(
             page: page,
             notebookPages: vm.pages,
             repo: container.aiMessages,
-            router: container.aiRouter
+            router: container.aiRouter,
+            overrideContextBase64: lassoBase64
         )
     }
 

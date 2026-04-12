@@ -13,14 +13,24 @@ final class ChatViewModel {
     private let notebookPages: [Page]
     private let repo: AIMessageRepository
     private let router: AIRouter
+    /// When set, this image (lasso selection crop) is used as context on the first
+    /// message instead of the full-page render from ChatContextBuilder.
+    private let overrideContextBase64: String?
     /// Page context image is attached only on the first message per session.
     private var contextAttached = false
 
-    init(page: Page, notebookPages: [Page], repo: AIMessageRepository, router: AIRouter) {
+    init(
+        page: Page,
+        notebookPages: [Page],
+        repo: AIMessageRepository,
+        router: AIRouter,
+        overrideContextBase64: String? = nil
+    ) {
         self.page = page
         self.notebookPages = notebookPages
         self.repo = repo
         self.router = router
+        self.overrideContextBase64 = overrideContextBase64
     }
 
     func load() {
@@ -29,11 +39,14 @@ final class ChatViewModel {
             if messages.isEmpty {
                 // Show a welcome message so the panel isn't blank on first open.
                 // Not persisted — it vanishes after the first real message exchange.
+                let welcomeText = overrideContextBase64 != nil
+                    ? "I can see your selection. Ask me anything about it."
+                    : "Hi! I can see your page. Ask me anything about it."
                 messages = [AIMessage(
                     id: "welcome-\(page.id)",
                     pageId: page.id,
                     role: .assistant,
-                    text: "Hi! I can see your page. Ask me anything about it.",
+                    text: welcomeText,
                     createdAt: Date()
                 )]
             } else {
@@ -66,17 +79,22 @@ final class ChatViewModel {
                 ChatHistoryEntry(role: $0.role.rawValue, text: $0.text)
             }
 
-            // Attach page image only on the first message — the model retains
-            // context from that point on, so re-sending is wasteful.
+            // Attach context only on the first message — the model retains it.
+            // Use the lasso-crop override when available (user made a selection),
+            // otherwise fall back to the full-page render.
             let context: String?
             if !contextAttached {
                 contextAttached = true
-                context = ChatContextBuilder.makeContextImageBase64(
-                    scope: scope,
-                    currentPage: page,
-                    notebookPages: notebookPages,
-                    pageSize: CGSize(width: 1024, height: 1366)
-                )
+                if let override = overrideContextBase64 {
+                    context = override
+                } else {
+                    context = ChatContextBuilder.makeContextImageBase64(
+                        scope: scope,
+                        currentPage: page,
+                        notebookPages: notebookPages,
+                        pageSize: CGSize(width: 1024, height: 1366)
+                    )
+                }
             } else {
                 context = nil
             }
