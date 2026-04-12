@@ -16,18 +16,18 @@ Full spec: `docs/specs/2026-04-07-ipad-ai-notes-design.md`
   - Pinch-to-zoom works: ink stays sharp (PKCanvasView native zoom), template re-renders sharp after gesture
   - Run: CI → Actions tab → download `NotesApp-ipa` artifact → sideload via KSign
 
-- **Plan C (AI integration into iOS):** COMPLETE. All 15 tasks implemented and CI green.
+- **Plan C (AI integration into iOS):** COMPLETE. All 15 tasks implemented, CI green, and **all Plan C smoke checklist items passed on device (2026-04-12)**.
   - Keychain store (injectable `SecretStorage` protocol), KeyPool (5-slot rotation), AIClient protocol
   - `PCServerAIClient` (home, 1.5s ping probe), `GroqFallbackAIClient` (school fallback, direct Groq REST)
   - `AIRouter` (@Observable, reachability probe, no silent downgrade, routing banner)
   - Baked prompts (`ios/Scripts/copy-prompts.sh` → bundle resource), `BakedPrompts.swift`
-  - Lasso transform: `LassoRasterizer` → `LassoMenuView` (7 actions) → `TransformResultView` popover
-  - Chat panel: `ChatContextBuilder`, `ChatViewModel`, `ChatPanelView` (scope picker, bubble UI)
+  - AI region selection: finger-drag box on canvas → crops ink → transform menu (7 actions) → `TransformResultView`
+  - Chat panel: `ChatContextBuilder`, `ChatViewModel`, `ChatPanelView` (scope picker, bubble UI, MathWebView)
   - Voice input: `VoiceRecorder` (AVAudioRecorder, hold-to-talk), `MicButton`
   - Sync: `SyncDiff`, `SyncClient` (push), `SyncScheduler` (5-min timer)
   - `AppContainer` wired: `aiMessages`, `aiRouter`, `syncClient`, `syncScheduler`
   - `SettingsView`: PC URL, Groq keys, voice language, routing label, sync now button
-  - ⚠️ AI features require runtime config (PC URL or Groq keys in Settings) before use — see smoke checklist
+  - ⚠️ AI features require runtime config (PC URL or Groq keys in Settings) before use
 
 ## Key files
 - Plans: `docs/plans/`
@@ -47,151 +47,107 @@ Full spec: `docs/specs/2026-04-07-ipad-ai-notes-design.md`
 ## What was fixed in this session (2026-04-09)
 
 ### 1. `Database` → `AppDatabase` rename (CI fix)
-**Problem:** Our `Database` class collided with GRDB's internal `Database` type. Swift couldn't resolve the ambiguity in the test target.
-**Fix:** Renamed our class to `AppDatabase` in all 5 affected files:
-- `ios/NotesApp/Data/Database.swift`
-- `ios/NotesApp/App/AppContainer.swift`
-- `ios/NotesAppTests/DatabaseTests.swift`
-- `ios/NotesAppTests/NotebookRepositoryTests.swift`
-- `ios/NotesAppTests/PageRepositoryTests.swift`
+**Problem:** Our `Database` class collided with GRDB's internal `Database` type.
+**Fix:** Renamed to `AppDatabase` in all 5 affected files.
 
 ### 2. WAL mode crash in all DB tests
-**Problem:** `SQLite error 1: could not activate WAL Mode at path: :memory:` — `DatabasePool` forces WAL mode but in-memory SQLite doesn't support it.
-**Fix:**
-- Changed `AppDatabase.makeInMemory()` to use `DatabaseQueue` instead of `DatabasePool`
-- Migrated `pool: DatabasePool` → `writer: any DatabaseWriter` throughout:
-  - `AppDatabase`, `Migrations`, `NotebookRepository`, `PageRepository`, `AppContainer`, all test files
-- Production `makeDefault()` still uses `DatabasePool` (needs concurrent reads)
+**Problem:** `DatabasePool` forces WAL mode but in-memory SQLite doesn't support it.
+**Fix:** `AppDatabase.makeInMemory()` uses `DatabaseQueue`; production still uses `DatabasePool`.
 
 ### 3. ThumbnailRenderer size mismatch on 2x Retina CI simulator
-**Problem:** `UIGraphicsImageRenderer` renders at screen scale (2×); `UIImage(data:)` reads back at scale 1.0 → reported size = pixel dimensions (320×426 instead of 160×213).
-**Fix:** Force `UIGraphicsImageRendererFormat.scale = 1.0` so PNG pixel dimensions always equal `targetSize`.
+**Fix:** Force `UIGraphicsImageRendererFormat.scale = 1.0`.
 
 ### 4. CI simulator not found
-**Problem:** `iPad Pro 11-inch (M4)` runtime not always cached on ephemeral GitHub Actions runners.
-**Fix:** Use `xcrun simctl list devices available | grep -E "iPad.*\(" | head -1 | grep -oE '[0-9A-F-]{36}'` to dynamically pick any available iPad simulator UDID. Also fixed YAML syntax error (multi-line Python heredoc was terminating the YAML block scalar).
+**Fix:** Dynamically pick any available iPad simulator UDID via `xcrun simctl list`.
 
-### 5. Zoom implementation (multiple iterations, final architecture)
-**Problem:** Needed pinch-to-zoom where both template background and ink scale together and stay sharp.
-
-**Root cause analysis:**
-- `UIScrollView` outer-wrap approach: applies GPU transform to container bitmap → BOTH ink and template are pixel-scaled → blurry at any zoom > 1x
-- `UIImageView` inside `PKCanvasView` approach: UIImageView scrolls with content but isn't inside PK's `viewForZooming` → template doesn't follow zoom transform
-
-**Final architecture (`ios/NotesApp/Canvas/CanvasView.swift`):**
-- `PKCanvasView` IS the root UIScrollView — PK re-renders strokes natively at each `zoomScale` change → ink always sharp
-- `UIImageView` (template) added at z=0 inside `PKCanvasView`
-- KVO on `PKCanvasView.zoomScale`: resize `UIImageView.frame` immediately (cheap), then debounce a full `PageTemplate.render()` re-render 150ms after gesture settles → template sharp after zoom
-- `minimumZoomScale` = fit-entire-page (computed from bounds in `DispatchQueue.main.async`) → cannot over-zoom out, no black gaps
-- `maximumZoomScale = 5.0`
-- `PKCanvasView.backgroundColor = .secondarySystemBackground` (gray outside page)
-- `contentInset` centering so page stays centered when smaller than viewport
-
-**Key insight:** Never use an outer `UIScrollView` for PencilKit zoom. Always use `PKCanvasView`'s own zoom — that's the only way PK re-renders strokes at higher resolution.
+### 5. Zoom implementation
+**Final architecture:** `PKCanvasView` IS the root UIScrollView. `UIImageView` (template) at z=0 inside it. KVO on `contentSize` resizes bgView each zoom tick; debounced 150ms re-render keeps template sharp. `minimumZoomScale` = fit-page. **Key insight:** Never wrap PKCanvasView in an outer UIScrollView — PK only re-renders strokes when its own zoomScale changes.
 
 ---
 
 ## What was done in this session (2026-04-11)
 
 ### Canvas bug fixes
-
-**Bug 1 — Template not updating between pages**
-`updateUIView` was not re-rendering `bgView` when the template or dark-mode setting changed because `coord.parent` was stale. Fixed by syncing `coord.parent = self` at the top of `updateUIView` and re-rendering when template/isDark changes.
-
-**Bug 2 — Lines multiplying on zoom**
-KVO was on `UIScrollView.zoomScale`, which PKCanvasView does not update via the normal KVO path during user pinch. Switched to `#keyPath(UIScrollView.contentSize)` — PK updates this every frame during pinch. Template now resizes from `contentSize` directly; no zoom-scale arithmetic needed. Debounced re-render at 150ms after gesture settles keeps template sharp.
-
-**File:** `ios/NotesApp/Canvas/CanvasView.swift`
+- **Template not updating between pages:** `coord.parent` was stale in `updateUIView`. Fixed by syncing at top of `updateUIView`.
+- **Lines multiplying on zoom:** KVO on `zoomScale` doesn't fire during pinch; switched to `contentSize` KVO.
 
 ### Plan C — AI integration (all 15 tasks)
-
-Implemented in full on top of Plan B. Key files added/modified:
-
-| Area | Files |
-|------|-------|
-| Secrets | `AI/KeychainStore.swift` (injectable `SecretStorage` protocol) |
-| Key rotation | `AI/KeyPool.swift` (5-slot, cooldown, error tracking) |
-| AI layer | `AI/AIModels.swift`, `AI/AIClient.swift`, `AI/PCServerAIClient.swift`, `AI/GroqFallbackAIClient.swift` |
-| Routing | `AI/AIRouter.swift` (@Observable, reachability probe, no silent downgrade) |
-| Prompts | `AI/BakedPrompts.swift`, `Scripts/copy-prompts.sh` |
-| Canvas lasso | `Canvas/LassoRasterizer.swift`, `Features/Notebook/LassoMenuView.swift`, `Features/Notebook/TransformResultView.swift` |
-| Chat | `Features/Chat/ChatContextBuilder.swift`, `Features/Chat/ChatViewModel.swift`, `Features/Chat/ChatPanelView.swift` |
-| Voice | `Features/Voice/VoiceRecorder.swift`, `Features/Voice/MicButton.swift` |
-| Sync | `Sync/SyncDiff.swift`, `Sync/SyncClient.swift`, `Sync/SyncScheduler.swift` |
-| Wiring | `App/AppContainer.swift`, `Features/Settings/SettingsView.swift` |
-| Data | `Data/AIMessage.swift`, `Data/AIMessageRepository.swift` |
+Full implementation. See key files table in Status section above.
 
 ### CI — Keychain test fix
-
-`KeychainStoreTests` was calling `KeychainStore.shared` which hits the real Keychain API. CI runners use ad-hoc signing which does not embed entitlements → `errSecMissingEntitlement (-34018)` → test failure. Fix: introduced `SecretStorage` protocol + `InMemoryStorage` (test-only dictionary backend). Tests now inject `KeychainStore(storage: InMemoryStorage())` — no Keychain API touched in CI.
+Introduced `SecretStorage` protocol + `InMemoryStorage` (test-only). Tests inject in-memory backend; no Keychain API in CI.
 
 ---
 
 ## What was fixed in this session (2026-04-12)
 
-### 1. AI offline after configuring Groq keys — banner bug + dead model
-**Root cause A:** `llama-3.2-90b-vision-preview` was removed from Groq. Every transform / vision-chat call returned HTTP error → `KeyPool.markError` → 3 errors = key dead → all keys die → `allKeysExhausted`. More keys didn't help because all of them died.
-**Fix:** `GroqFallbackAIClient.visionModel` → `"meta-llama/llama-4-scout-17b-16e-instruct"` (tested working).
-
-**Root cause B:** `AIRouter.activeLabel` defaulted to `"offline"` regardless of key config. NotebookView banner checked `activeLabel == "offline"` → showed "AI offline" even with valid keys configured.
-**Fix:** Added `isConfigured: Bool` computed property to `AIRouter`. Banner now checks `!container.aiRouter.isConfigured` for the offline state.
+### 1. AI offline after configuring Groq keys
+- **Root cause A:** `llama-3.2-90b-vision-preview` removed from Groq. Fix: updated to `meta-llama/llama-4-scout-17b-16e-instruct`.
+- **Root cause B:** `AIRouter.activeLabel` defaulted `"offline"`. Fix: added `isConfigured` computed property; banner checks that instead.
 
 ### 2. Chat through PC server — field name mismatches
-`ChatHistoryEntry.text` was encoded as `"text"` but server expects `"content"`. `ChatRequest.imageBase64` was encoded as `"image_base64"` but server expects `"context_image_base64"`.
-**Fix:** Added `CodingKeys` to `ChatHistoryEntry` mapping `text → "content"`. Updated `ChatRequest` CodingKey for `imageBase64 → "context_image_base64"`.
+`ChatHistoryEntry.text` → `"content"`, `ChatRequest.imageBase64` → `"context_image_base64"` via `CodingKeys`.
 
 ### 3. Sync always failing — request format mismatch
-iOS `SyncDiff` sent flat `{notebooks, pages, messages, computedAt}` but server's `SyncPushRequest` expects `{notebooks: [{...notebook, pages: [{...page}]}], since_timestamp}`.
-**Fix:** Rewrote `SyncClient.push()` to build server-compatible nested snapshots. For each changed notebook (or notebook with changed pages), fetches ALL current pages and sends as `NotebookSnapshot` with `drawing_blob_base64`, timestamps as Unix floats.
+iOS sent flat dict; server expects nested `NotebookSnapshot`. Rewrote `SyncClient.push()`.
 
-### 4. "Physics mode" label overlapping navigation title
-Lasso menu `.popover` was attached to the whole view body — SwiftUI positioned it over the nav bar.
-**Fix:** Moved `.popover` to the AI toolbar button itself. Popover now anchors from the sparkles button.
+### 4. Popover overlapping nav bar
+Moved `.popover` from view body to the AI toolbar button.
+
+### 5. AI output plain text (LaTeX/markdown not rendered)
+Added `MathWebView.swift` (WKWebView + KaTeX + marked from CDN). Used in `TransformResultView` and chat assistant bubbles.
+
+### 6. Chat blank on open; full page sent every message
+- Added synthetic welcome message in `ChatViewModel.load()`.
+- Context image attached on first message only (`contextAttached` flag).
+
+### 7. App crash when AI result appeared
+**Root cause:** `JSONSerialization.data(withJSONObject: bareString)` throws ObjC exception; Swift `try?` doesn't catch it. Fix: `JSONEncoder().encode(content)`.
 
 ---
 
-## What was fixed in this session (2026-04-12, continued)
+## What was fixed in this session (2026-04-12, continued — AI selection overhaul)
 
-### 1. Lasso selection always sending full page to AI
-**Root cause:** `canvasViewDrawingDidChange` called `onSelectionBoundsChanged?(nil)` unconditionally. PencilKit fires this delegate when a lasso *selects* strokes (changes drawing selection state), wiping the bounds set in `handleLassoGesture` before `runTransform` could use them.
-**Fix:** Only clear lasso bounds in `canvasViewDrawingDidChange` when the current tool is NOT `PKLassoTool`.
+### 1. Lasso AI always scanning full page (root cause: wrong gesture recognizer)
+**Root cause:** `PKCanvasView.drawingGestureRecognizer` handles **finger** input only (per Apple docs). Pencil lasso is routed through PencilKit's private internal recognizer — no public API to observe it. All previous `handleLassoGesture` code was dead; `lassoSelectionBounds` was always nil.
+
+**Fix:** Replaced PencilKit lasso detection entirely with a dedicated **finger AI-selection mode**:
+- Sparkles button tapped → canvas enters `aiSelectionMode`
+- Blue hint banner: "Drag with finger to select AI region"
+- Finger `UIPanGestureRecognizer` (finger-only, `allowedTouchTypes = direct`) draws a blue selection rectangle
+- UIScrollView `panGestureRecognizer` disabled during selection to prevent scroll conflict
+- On finger lift → rect converted to drawing coordinates → `lassoSelectionBounds` set → transform menu opens
+- Pencil continues drawing/lassoing normally — no conflict (`drawingPolicy = .pencilOnly`)
+
+**Files:** `ios/NotesApp/Canvas/CanvasView.swift`, `ios/NotesApp/Features/Notebook/NotebookView.swift`
+
+### 2. AI crop landing on empty space (coordinate conversion bug)
+**Root cause:** `sender.location(in: canvas)` returns **content coordinates** because UIScrollView sets `bounds.origin = contentOffset`. The formula was adding `contentOffset` a second time → crop rect shifted by `-contentOffset` into blank space → blank PNG sent to AI.
+
+**Fix:** `drawingCoord = locationInCanvas / zoomScale` (no `contentOffset` term).
 **File:** `ios/NotesApp/Canvas/CanvasView.swift`
 
-### 2. AI output was plain text — LaTeX/markdown not rendered
-**Fix:** New `MathWebView.swift` — `UIViewRepresentable` wrapping `WKWebView` that renders content via KaTeX + marked from jsDelivr CDN (internet already required for AI). `TransformResultView` now uses it. Chat assistant bubbles use `MathWebView` when math is detected (`$` or `\`), otherwise `AttributedString` for basic markdown.
-**Files:** `ios/NotesApp/AI/MathWebView.swift`, `ios/NotesApp/Features/Notebook/TransformResultView.swift`, `ios/NotesApp/Features/Chat/ChatPanelView.swift`
+### 3. "Ask in Chat" button added to transform result
+After a transform, user can tap "Ask in Chat" → transform answer appears as an **ephemeral assistant bubble** in the chat (not in the input field), leaving the input empty for the user's follow-up question.
 
-### 3. Chat panel blank on open; full page attached every message
-- Added synthetic welcome message in `ChatViewModel.load()` when no prior history exists.
-- Context image (page/selection crop) now attached only on the **first** message per session (`contextAttached` flag). Follow-up messages are text-only — cheaper and the model already has context.
+**Files:** `ios/NotesApp/Features/Notebook/TransformResultView.swift`, `ios/NotesApp/Features/Notebook/NotebookView.swift`, `ios/NotesApp/Features/Chat/ChatViewModel.swift`
+
+### 4. "Ask in Chat" was sending the answer as the user's message
+**Root cause:** `onSendToChat` set `chatVM.inputText = transformResult` → user tapped send → posted AI answer as user message.
+**Fix:** Pass as `injectedAssistantMessage` to `ChatViewModel.init`. `load()` appends it as an ephemeral assistant bubble (not persisted).
 **File:** `ios/NotesApp/Features/Chat/ChatViewModel.swift`
 
-### 4. App crash when AI result appeared
-**Root cause:** `MathWebView` called `JSONSerialization.data(withJSONObject: someString)`. `JSONSerialization` requires `NSDictionary` or `NSArray` at top level — passing a bare `String` throws `NSInvalidArgumentException` (an ObjC exception). Swift's `try?` catches Swift `Error` only, not ObjC exceptions → unconditional crash whenever a transform result or math chat bubble appeared.
-**Fix:** Replaced with `JSONEncoder().encode(content)` which handles `String` natively.
+### 5. MathWebView invisible text in dark mode
+**Root cause:** HTML body had no explicit color. WKWebView dark-mode auto-adapt made background dark but text inherited black → invisible. Also WKWebView `scrollView.backgroundColor` was opaque white.
+**Fix:** `html,body { background: transparent }` + `color: #000000` with `@media (prefers-color-scheme: dark) { color: #ffffff }`. `scrollView.backgroundColor = .clear`.
 **File:** `ios/NotesApp/AI/MathWebView.swift`
-
-### 5. Lasso → AI → auto-open chat with selection context (new feature)
-Sparkles button is now context-aware:
-- **Lasso active** → rasterize selection → open chat with crop as context image. Welcome message says "I can see your selection."
-- **No lasso** → show transform menu (existing behavior, unchanged)
-
-`ChatViewModel` accepts optional `overrideContextBase64` — when set, sends the lasso crop as first-message context instead of full-page render.
-
-Also fixed a race: `.onChange(of: showingChat)` now skips rebuilding `chatVM` if one was already pre-set by the lasso path (prevents overwriting lasso context with full-page context).
-**Files:** `ios/NotesApp/Features/Notebook/NotebookView.swift`, `ios/NotesApp/Features/Chat/ChatViewModel.swift`
 
 ---
 
 ## Known issues / next steps
 
-- **A few bugs remain** — user to specify at start of next session.
-- **AI features need runtime config before use.** After sideloading, go to Settings and enter either:
-  - PC URL (e.g. `http://192.168.x.x:8000`) — requires PC server running (`cd server && uvicorn notes_server.server:app --reload`)
-  - One or more Groq API keys — for school / offline-PC fallback
-- **Smoke checklist items for Plan C** (`docs/smoke-checklist.md`) have NOT yet been run end-to-end on device. Run them after configuring keys.
-- Sync pull (restore after reinstall) is server-side only — not yet wired on the iOS side (Plan A's `/sync/pull` endpoint exists; iOS client for pull not implemented).
-- MathWebView CDN rendering: KaTeX + marked load from jsDelivr CDN. Falls back to blank if offline (AI features also need internet, so this is acceptable). Future: consider bundling KaTeX locally.
+- Sync **pull** (restore after reinstall) not yet wired on iOS side. Server's `/sync/pull` endpoint exists; iOS client not implemented.
+- `MathWebView` loads KaTeX + marked from jsDelivr CDN. Falls back to blank if offline (AI also needs internet, so acceptable). Future: bundle KaTeX locally.
 
 ## Server quick-start reminder
 
