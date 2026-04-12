@@ -42,6 +42,11 @@ struct TransformResponse: Codable {
 struct ChatHistoryEntry: Codable {
     let role: String   // "user" | "assistant"
     let text: String
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case text = "content"   // server expects "content" (matches OpenAI/Groq wire format)
+    }
 }
 
 struct ChatRequest: Codable {
@@ -56,7 +61,7 @@ struct ChatRequest: Codable {
         case message
         case history
         case scope
-        case imageBase64 = "image_base64"
+        case imageBase64 = "context_image_base64"  // matches PC server field name
     }
 }
 

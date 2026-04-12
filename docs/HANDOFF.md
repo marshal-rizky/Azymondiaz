@@ -127,6 +127,29 @@ Implemented in full on top of Plan B. Key files added/modified:
 
 ---
 
+## What was fixed in this session (2026-04-12)
+
+### 1. AI offline after configuring Groq keys — banner bug + dead model
+**Root cause A:** `llama-3.2-90b-vision-preview` was removed from Groq. Every transform / vision-chat call returned HTTP error → `KeyPool.markError` → 3 errors = key dead → all keys die → `allKeysExhausted`. More keys didn't help because all of them died.
+**Fix:** `GroqFallbackAIClient.visionModel` → `"meta-llama/llama-4-scout-17b-16e-instruct"` (tested working).
+
+**Root cause B:** `AIRouter.activeLabel` defaulted to `"offline"` regardless of key config. NotebookView banner checked `activeLabel == "offline"` → showed "AI offline" even with valid keys configured.
+**Fix:** Added `isConfigured: Bool` computed property to `AIRouter`. Banner now checks `!container.aiRouter.isConfigured` for the offline state.
+
+### 2. Chat through PC server — field name mismatches
+`ChatHistoryEntry.text` was encoded as `"text"` but server expects `"content"`. `ChatRequest.imageBase64` was encoded as `"image_base64"` but server expects `"context_image_base64"`.
+**Fix:** Added `CodingKeys` to `ChatHistoryEntry` mapping `text → "content"`. Updated `ChatRequest` CodingKey for `imageBase64 → "context_image_base64"`.
+
+### 3. Sync always failing — request format mismatch
+iOS `SyncDiff` sent flat `{notebooks, pages, messages, computedAt}` but server's `SyncPushRequest` expects `{notebooks: [{...notebook, pages: [{...page}]}], since_timestamp}`.
+**Fix:** Rewrote `SyncClient.push()` to build server-compatible nested snapshots. For each changed notebook (or notebook with changed pages), fetches ALL current pages and sends as `NotebookSnapshot` with `drawing_blob_base64`, timestamps as Unix floats.
+
+### 4. "Physics mode" label overlapping navigation title
+Lasso menu `.popover` was attached to the whole view body — SwiftUI positioned it over the nav bar.
+**Fix:** Moved `.popover` to the AI toolbar button itself. Popover now anchors from the sparkles button.
+
+---
+
 ## Known issues / next steps
 
 - **AI features need runtime config before use.** After sideloading, go to Settings and enter either:

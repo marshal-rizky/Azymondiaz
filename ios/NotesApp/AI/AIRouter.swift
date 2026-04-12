@@ -15,6 +15,9 @@ final class AIRouter: AIClient {
 
     var label: String { activeLabel }
 
+    /// True when at least one backend is configured. Used by the offline banner.
+    var isConfigured: Bool { pcClient != nil || groqClient != nil }
+
     init(
         pcClient: AIClient?,
         groqClient: AIClient?,

@@ -8,7 +8,7 @@ final class GroqFallbackAIClient: AIClient {
     private let session: URLSession
 
     // Model IDs — keep in sync with server/app/routing.py in Plan A.
-    private let visionModel  = "llama-3.2-90b-vision-preview"
+    private let visionModel  = "meta-llama/llama-4-scout-17b-16e-instruct"
     private let chatModel    = "llama-3.3-70b-versatile"
     private let whisperModel = "whisper-large-v3-turbo"
 

@@ -52,6 +52,13 @@ struct NotebookView: View {
                         Label("AI", systemImage: "sparkles")
                     }
                     .disabled(transformInFlight)
+                    .popover(isPresented: $showingLassoMenu) {
+                        LassoMenuView(
+                            onSelect: { action in Task { await runTransform(action: action) } },
+                            onDismiss: { showingLassoMenu = false }
+                        )
+                        .presentationCompactAdaptation(.popover)
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -93,13 +100,6 @@ struct NotebookView: View {
                 ShareSheet(items: [PDFActivityItem(data: data, title: notebook.title)])
             }
         }
-        .popover(isPresented: $showingLassoMenu) {
-            LassoMenuView(
-                onSelect: { action in Task { await runTransform(action: action) } },
-                onDismiss: { showingLassoMenu = false }
-            )
-            .presentationCompactAdaptation(.popover)
-        }
         .sheet(item: Binding(
             get: { showingTransformResult.map { IdentifiableResponse(wrapped: $0) } },
             set: { showingTransformResult = $0?.wrapped }
@@ -132,18 +132,18 @@ struct NotebookView: View {
 
     private var mainContent: some View {
         VStack(spacing: 0) {
-            if container.aiRouter.activeLabel == "groq" {
-                Text("Using Groq fallback")
-                    .font(.caption)
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.orange.opacity(0.2))
-            } else if container.aiRouter.activeLabel == "offline" {
+            if !container.aiRouter.isConfigured {
                 Text("AI offline — configure in Settings")
                     .font(.caption)
                     .padding(.vertical, 4)
                     .frame(maxWidth: .infinity)
                     .background(Color.gray.opacity(0.2))
+            } else if container.aiRouter.activeLabel == "groq" {
+                Text("Using Groq fallback")
+                    .font(.caption)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.orange.opacity(0.2))
             }
             HStack(spacing: 0) {
                 if let vm = viewModel {
