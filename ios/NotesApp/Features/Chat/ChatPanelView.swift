@@ -78,7 +78,6 @@ struct ChatPanelView: View {
             // Render markdown + LaTeX via WKWebView (requires internet — same as AI)
             MathWebView(content: msg.text)
                 .frame(minHeight: 80, maxHeight: 400)
-                .padding(4)
         } else {
             // Basic markdown (bold, italic, code) via AttributedString — no network needed
             Text(markdownAttr(msg.text))

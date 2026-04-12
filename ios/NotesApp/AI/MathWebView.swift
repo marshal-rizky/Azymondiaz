@@ -11,6 +11,7 @@ struct MathWebView: UIViewRepresentable {
         let wv = WKWebView()
         wv.isOpaque = false
         wv.backgroundColor = .clear
+        wv.scrollView.backgroundColor = .clear
         wv.scrollView.isScrollEnabled = true
         return wv
     }
@@ -33,13 +34,20 @@ struct MathWebView: UIViewRepresentable {
         <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
         <style>
-        body{font-family:-apple-system,sans-serif;font-size:16px;padding:8px;margin:0;
-             word-wrap:break-word;visibility:hidden}
+        html,body{background:transparent;margin:0}
+        body{font-family:-apple-system,sans-serif;font-size:16px;
+             padding:8px 12px;word-wrap:break-word;visibility:hidden;
+             color:#000000}
         pre{background:#f0f0f0;padding:8px;border-radius:6px;overflow-x:auto}
         code{font-family:menlo,monospace;font-size:.88em;background:#f0f0f0;
              padding:1px 4px;border-radius:3px}
         pre code{background:none;padding:0}
         .katex-display{overflow-x:auto;overflow-y:hidden}
+        @media(prefers-color-scheme:dark){
+          body{color:#ffffff}
+          pre,code{background:#3a3a3c}
+          pre code{background:none}
+        }
         </style></head>
         <body><div id="c"></div>
         <script>
