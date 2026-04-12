@@ -16,6 +16,10 @@ final class ChatViewModel {
     /// When set, this image (lasso selection crop) is used as context on the first
     /// message instead of the full-page render from ChatContextBuilder.
     private let overrideContextBase64: String?
+    /// When set, this text is shown as an assistant bubble on open (not persisted).
+    /// Used when the user taps "Ask in Chat" from a transform result — the result
+    /// appears as context so the user can type a follow-up question.
+    private let injectedAssistantMessage: String?
     /// Page context image is attached only on the first message per session.
     private var contextAttached = false
 
@@ -24,13 +28,15 @@ final class ChatViewModel {
         notebookPages: [Page],
         repo: AIMessageRepository,
         router: AIRouter,
-        overrideContextBase64: String? = nil
+        overrideContextBase64: String? = nil,
+        injectedAssistantMessage: String? = nil
     ) {
         self.page = page
         self.notebookPages = notebookPages
         self.repo = repo
         self.router = router
         self.overrideContextBase64 = overrideContextBase64
+        self.injectedAssistantMessage = injectedAssistantMessage
     }
 
     func load() {
@@ -52,6 +58,17 @@ final class ChatViewModel {
             } else {
                 // Prior conversation exists → context was already sent.
                 contextAttached = true
+            }
+            // Append injected transform result as an ephemeral assistant bubble.
+            // Not persisted — gives the user context to ask a follow-up question.
+            if let injected = injectedAssistantMessage {
+                messages.append(AIMessage(
+                    id: "injected-\(UUID().uuidString)",
+                    pageId: page.id,
+                    role: .assistant,
+                    text: injected,
+                    createdAt: Date()
+                ))
             }
         } catch {
             errorMessage = error.localizedDescription

@@ -130,8 +130,9 @@ struct NotebookView: View {
                 onDismiss: { showingTransformResult = nil },
                 onSendToChat: { text in
                     showingTransformResult = nil
-                    if chatVM == nil { rebuildChatVM() }
-                    chatVM?.inputText = text
+                    // Inject the transform result as an assistant bubble so the
+                    // user sees it as context and can type a follow-up question.
+                    rebuildChatVM(injectedMessage: text)
                     withAnimation { showingChat = true }
                 }
             )
@@ -268,14 +269,15 @@ struct NotebookView: View {
     }
 
     @MainActor
-    private func rebuildChatVM(lassoBase64: String? = nil) {
+    private func rebuildChatVM(lassoBase64: String? = nil, injectedMessage: String? = nil) {
         guard let vm = viewModel, let page = vm.currentPage else { return }
         chatVM = ChatViewModel(
             page: page,
             notebookPages: vm.pages,
             repo: container.aiMessages,
             router: container.aiRouter,
-            overrideContextBase64: lassoBase64
+            overrideContextBase64: lassoBase64,
+            injectedAssistantMessage: injectedMessage
         )
     }
 
