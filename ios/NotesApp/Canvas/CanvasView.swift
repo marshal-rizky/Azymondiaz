@@ -195,9 +195,12 @@ struct CanvasView: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             parent.drawing = canvasView.drawing
-            // Clear stored lasso selection whenever the drawing changes: the selection
-            // bounds are now stale (content moved or new ink was added).
-            parent.onSelectionBoundsChanged?(nil)
+            // Clear lasso selection only when new ink is drawn, NOT when lasso selects
+            // strokes. PencilKit triggers this delegate on selection changes too, which
+            // would wipe the bounds we just set in handleLassoGesture.
+            if !(canvasView.tool is PKLassoTool) {
+                parent.onSelectionBoundsChanged?(nil)
+            }
         }
 
         // MARK: KVO — contentSize

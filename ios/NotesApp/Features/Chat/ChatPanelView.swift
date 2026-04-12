@@ -59,14 +59,43 @@ struct ChatPanelView: View {
         let isUser = msg.role == .user
         HStack {
             if isUser { Spacer() }
+            bubbleContent(msg: msg)
+                .background(isUser ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(maxWidth: 300)
+            if !isUser { Spacer() }
+        }
+    }
+
+    /// Inner content of a chat bubble. Separated to avoid @ViewBuilder let-binding issues.
+    @ViewBuilder
+    private func bubbleContent(msg: AIMessage) -> some View {
+        if msg.role == .user {
             Text(msg.text)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(isUser ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .frame(maxWidth: 280, alignment: isUser ? .trailing : .leading)
-            if !isUser { Spacer() }
+        } else if containsMath(msg.text) {
+            // Render markdown + LaTeX via WKWebView (requires internet — same as AI)
+            MathWebView(content: msg.text)
+                .frame(minHeight: 80, maxHeight: 400)
+                .padding(4)
+        } else {
+            // Basic markdown (bold, italic, code) via AttributedString — no network needed
+            Text(markdownAttr(msg.text))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
         }
+    }
+
+    private func containsMath(_ text: String) -> Bool {
+        text.contains("$") || text.contains("\\")
+    }
+
+    private func markdownAttr(_ text: String) -> AttributedString {
+        (try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(text)
     }
 
     private var inputBar: some View {

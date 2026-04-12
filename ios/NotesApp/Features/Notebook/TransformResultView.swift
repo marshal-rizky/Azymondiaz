@@ -16,12 +16,8 @@ struct TransformResultView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            ScrollView {
-                Text(payloadText)
-                    .font(.body.monospaced())
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(minHeight: 120, maxHeight: 240)
+            MathWebView(content: payloadText)
+                .frame(minHeight: 120, maxHeight: 300)
             HStack(spacing: 12) {
                 Button("Insert below") { onInsertBelow(payloadText) }
                     .buttonStyle(.borderedProminent)
