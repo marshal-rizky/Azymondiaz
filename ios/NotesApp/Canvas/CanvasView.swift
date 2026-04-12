@@ -25,8 +25,9 @@ struct CanvasView: UIViewRepresentable {
     let template: PageTemplateKind
     let pageSize: CGSize
     let isDark: Bool
-    /// Called from the AI toolbar button. Returns full page drawing + bounds as context.
-    var onRequestSelection: ((_ drawing: PKDrawing, _ bounds: CGRect) -> Void)? = nil
+    /// Called when the user completes a lasso gesture. Provides the bounds of selected strokes
+    /// in drawing coordinates, or nil when the selection is cleared (e.g. new stroke drawn).
+    var onSelectionBoundsChanged: ((CGRect?) -> Void)? = nil
 
     private static let bgTag = 100
 
@@ -63,6 +64,10 @@ struct CanvasView: UIViewRepresentable {
             context: nil
         )
         context.coordinator.observedCanvas = canvas
+        canvas.drawingGestureRecognizer.addTarget(
+            context.coordinator,
+            action: #selector(Coordinator.handleLassoGesture(_:))
+        )
 
         DispatchQueue.main.async {
             guard canvas.bounds.width > 0 else { return }
@@ -117,6 +122,7 @@ struct CanvasView: UIViewRepresentable {
     static func dismantleUIView(_ uiView: PKCanvasView, coordinator: Coordinator) {
         coordinator.stopObserving()
         coordinator.rerenderTimer?.invalidate()
+        uiView.drawingGestureRecognizer.removeTarget(coordinator, action: nil)
     }
 
     // MARK: - Coordinator
@@ -127,17 +133,56 @@ struct CanvasView: UIViewRepresentable {
         weak var observedCanvas: PKCanvasView?
         var rerenderTimer: Timer?
 
+        /// Accumulated view-space bounding rect while user draws a lasso gesture.
+        private var lassoRawViewBounds: CGRect? = nil
+
         init(_ parent: CanvasView) { self.parent = parent }
 
-        /// Called by NotebookView's AI toolbar button. Returns the current
-        /// drawing as context for transform requests.
-        func currentSelection() -> (PKDrawing, CGRect)? {
-            guard let canvas = observedCanvas else { return nil }
-            let drawing = canvas.drawing
-            let bounds = drawing.bounds.isEmpty
-                ? CGRect(origin: .zero, size: parent.pageSize)
-                : drawing.bounds.insetBy(dx: -10, dy: -10)
-            return (drawing, bounds)
+        /// Tracks the lasso gesture and, on completion, fires onSelectionBoundsChanged with
+        /// the bounding rect of the strokes enclosed by the lasso (drawing coordinates).
+        @objc func handleLassoGesture(_ sender: UIGestureRecognizer) {
+            guard let canvas = observedCanvas else { return }
+            guard canvas.tool is PKLassoTool else {
+                // Non-lasso tool gesture — ignore (selection already cleared in drawing-change callback)
+                return
+            }
+            let pt = sender.location(in: canvas)
+            switch sender.state {
+            case .began:
+                lassoRawViewBounds = CGRect(origin: pt, size: .zero)
+            case .changed:
+                if var b = lassoRawViewBounds {
+                    b = b.union(CGRect(origin: pt, size: .zero))
+                    lassoRawViewBounds = b
+                }
+            case .ended, .cancelled:
+                defer { lassoRawViewBounds = nil }
+                guard let viewBounds = lassoRawViewBounds,
+                      viewBounds.width > 5 || viewBounds.height > 5 else { return }
+
+                // Convert view-space bounds → drawing coordinate space
+                let z = canvas.zoomScale > 0 ? canvas.zoomScale : 1
+                let contentBounds = CGRect(
+                    x: (viewBounds.minX + canvas.contentOffset.x) / z,
+                    y: (viewBounds.minY + canvas.contentOffset.y) / z,
+                    width: viewBounds.width / z,
+                    height: viewBounds.height / z
+                )
+
+                // Refine: union the renderBounds of strokes that fall inside the lasso area
+                let enclosed = canvas.drawing.strokes.filter { $0.renderBounds.intersects(contentBounds) }
+                let selectionBounds: CGRect
+                if !enclosed.isEmpty {
+                    selectionBounds = enclosed
+                        .reduce(CGRect.null) { $0.union($1.renderBounds) }
+                        .insetBy(dx: -15, dy: -15)
+                } else {
+                    selectionBounds = contentBounds
+                }
+                parent.onSelectionBoundsChanged?(selectionBounds)
+            default:
+                break
+            }
         }
 
         func stopObserving() {
@@ -150,6 +195,9 @@ struct CanvasView: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             parent.drawing = canvasView.drawing
+            // Clear stored lasso selection whenever the drawing changes: the selection
+            // bounds are now stale (content moved or new ink was added).
+            parent.onSelectionBoundsChanged?(nil)
         }
 
         // MARK: KVO — contentSize

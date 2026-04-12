@@ -16,22 +16,18 @@ struct NotebookView: View {
     @State private var transformInFlight = false
     @State private var transformError: String? = nil
     @State private var showingChat = false
+    /// Stored once so re-renders from drawing changes don't recreate/reset the view model.
+    @State private var chatVM: ChatViewModel? = nil
+    /// Bounds of the last lasso selection in drawing coordinates. Used to crop the transform image.
+    @State private var lassoSelectionBounds: CGRect? = nil
 
     var body: some View {
         HStack(spacing: 0) {
             mainContent
-            if showingChat, let vm = viewModel, let page = vm.currentPage {
+            if showingChat, let cvm = chatVM {
                 Divider()
-                ChatPanelView(
-                    viewModel: ChatViewModel(
-                        page: page,
-                        notebookPages: vm.pages,
-                        repo: container.aiMessages,
-                        router: container.aiRouter
-                    ),
-                    onClose: { showingChat = false }
-                )
-                .transition(.move(edge: .trailing))
+                ChatPanelView(viewModel: cvm, onClose: { showingChat = false })
+                    .transition(.move(edge: .trailing))
             }
         }
         .navigationTitle(notebook.title)
@@ -94,6 +90,16 @@ struct NotebookView: View {
         }
         .onDisappear {
             viewModel?.flushSave()
+        }
+        .onChange(of: showingChat) { _, isShowing in
+            if isShowing {
+                rebuildChatVM()
+            } else {
+                chatVM = nil
+            }
+        }
+        .onChange(of: viewModel?.currentPageIndex) { _, _ in
+            if showingChat { rebuildChatVM() }
         }
         .sheet(isPresented: $showingShareSheet) {
             if let data = pdfData {
@@ -214,7 +220,10 @@ struct NotebookView: View {
                 allowsFingerDrawing: false,
                 template: page.template,
                 pageSize: pageSize,
-                isDark: false  // Page is always white; dark mode applies to chrome, not paper
+                isDark: false,  // Page is always white; dark mode applies to chrome, not paper
+                onSelectionBoundsChanged: { bounds in
+                    lassoSelectionBounds = bounds
+                }
             )
             .background(Color(.secondarySystemBackground))
         } else {
@@ -231,13 +240,30 @@ struct NotebookView: View {
     }
 
     @MainActor
+    private func rebuildChatVM() {
+        guard let vm = viewModel, let page = vm.currentPage else { return }
+        chatVM = ChatViewModel(
+            page: page,
+            notebookPages: vm.pages,
+            repo: container.aiMessages,
+            router: container.aiRouter
+        )
+    }
+
+    @MainActor
     private func runTransform(action: AIAction) async {
         guard let vm = viewModel else { return }
         vm.flushSave()
         let drawing = vm.currentDrawing
-        let bounds = drawing.bounds.isEmpty
-            ? CGRect(origin: .zero, size: pageSize)
-            : drawing.bounds.insetBy(dx: -10, dy: -10)
+        // Use lasso selection bounds if the user made a selection; fall back to full drawing bounds.
+        let bounds: CGRect
+        if let sel = lassoSelectionBounds, sel.width > 5, sel.height > 5 {
+            bounds = sel
+        } else if drawing.bounds.isEmpty {
+            bounds = CGRect(origin: .zero, size: pageSize)
+        } else {
+            bounds = drawing.bounds.insetBy(dx: -10, dy: -10)
+        }
         let base64 = LassoRasterizer.rasterize(selection: drawing, bounds: bounds)
         guard !base64.isEmpty else {
             transformError = "Nothing to transform — draw something first."
