@@ -18,7 +18,9 @@ struct NotebookView: View {
     @State private var showingChat = false
     /// Stored once so re-renders from drawing changes don't recreate/reset the view model.
     @State private var chatVM: ChatViewModel? = nil
-    /// Bounds of the last lasso selection in drawing coordinates. Used to crop the transform image.
+    /// True while the canvas is in AI finger-selection mode (drawing the crop rectangle).
+    @State private var aiSelectionMode = false
+    /// Bounds of the AI region selection in drawing coordinates. Set by onAIRegionSelected.
     @State private var lassoSelectionBounds: CGRect? = nil
 
     var body: some View {
@@ -43,11 +45,13 @@ struct NotebookView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showingLassoMenu = true
+                        // Enter finger-selection mode. User drags to define the AI crop region,
+                        // then onAIRegionSelected fires → sets lassoSelectionBounds → shows menu.
+                        aiSelectionMode = true
                     } label: {
-                        Label("AI", systemImage: "sparkles")
+                        Label(aiSelectionMode ? "Selecting…" : "AI", systemImage: "sparkles")
                     }
-                    .disabled(transformInFlight)
+                    .disabled(transformInFlight || aiSelectionMode)
                     .popover(isPresented: $showingLassoMenu) {
                         LassoMenuView(
                             onSelect: { action in Task { await runTransform(action: action) } },
@@ -100,6 +104,8 @@ struct NotebookView: View {
             }
         }
         .onChange(of: viewModel?.currentPageIndex) { _, _ in
+            aiSelectionMode = false
+            lassoSelectionBounds = nil
             if showingChat { rebuildChatVM() }
         }
         .sheet(isPresented: $showingShareSheet) {
@@ -228,11 +234,26 @@ struct NotebookView: View {
                 template: page.template,
                 pageSize: pageSize,
                 isDark: false,  // Page is always white; dark mode applies to chrome, not paper
-                onSelectionBoundsChanged: { bounds in
-                    lassoSelectionBounds = bounds
+                aiSelectionMode: $aiSelectionMode,
+                onAIRegionSelected: { rect in
+                    lassoSelectionBounds = rect  // nil → full-page fallback in runTransform
+                    showingLassoMenu = true
                 }
             )
             .background(Color(.secondarySystemBackground))
+            .overlay(alignment: .top) {
+                if aiSelectionMode {
+                    Text("Drag with finger to select AI region")
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.accentColor.opacity(0.9))
+                        .foregroundStyle(.white)
+                        .cornerRadius(8)
+                        .padding(.top, 12)
+                        .allowsHitTesting(false)
+                }
+            }
         } else {
             Text("No page")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -272,6 +293,7 @@ struct NotebookView: View {
         } else {
             bounds = drawing.bounds.insetBy(dx: -10, dy: -10)
         }
+        lassoSelectionBounds = nil  // consumed; next transform starts fresh
         let base64 = LassoRasterizer.rasterize(selection: drawing, bounds: bounds)
         guard !base64.isEmpty else {
             transformError = "Nothing to transform — draw something first."

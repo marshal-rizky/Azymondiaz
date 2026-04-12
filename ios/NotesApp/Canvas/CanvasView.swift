@@ -16,18 +16,24 @@ import PencilKit
 ///   KVO on contentSize fires every zoom tick (user pinch + programmatic) — resizes bgView immediately.
 ///   A 0.15s debounced timer re-renders the template image at the new pixel size (sharp).
 ///
-/// Initial positioning fix:
-///   After setZoomScale + centerPage, contentOffset is explicitly set so the page
-///   appears centered rather than off-screen.
+/// AI selection mode:
+///   PKCanvasView.drawingGestureRecognizer handles finger input only (not pencil). Since
+///   drawingPolicy = .pencilOnly, pencil lasso is handled by PencilKit's private internal
+///   recognizer — we cannot hook into it. Instead, when aiSelectionMode = true, scroll is
+///   disabled and a finger pan gesture draws a selection rectangle. On lift, the rect in
+///   drawing coordinates is reported via onAIRegionSelected and aiSelectionMode resets to false.
 struct CanvasView: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     let allowsFingerDrawing: Bool
     let template: PageTemplateKind
     let pageSize: CGSize
     let isDark: Bool
-    /// Called when the user completes a lasso gesture. Provides the bounds of selected strokes
-    /// in drawing coordinates, or nil when the selection is cleared (e.g. new stroke drawn).
-    var onSelectionBoundsChanged: ((CGRect?) -> Void)? = nil
+    /// When true the canvas enters AI-region-selection mode: scroll is disabled, and a
+    /// single-finger pan draws a selection rectangle. Resets to false after the gesture ends.
+    @Binding var aiSelectionMode: Bool
+    /// Called when the AI-region gesture completes. `nil` means no valid rectangle was drawn
+    /// (caller should fall back to full-page context).
+    var onAIRegionSelected: ((CGRect?) -> Void)? = nil
 
     private static let bgTag = 100
 
@@ -38,7 +44,7 @@ struct CanvasView: UIViewRepresentable {
         canvas.drawing = drawing
         canvas.delegate = context.coordinator
         // Transparent canvas so the SwiftUI .background() shows through as the
-        // gray "outside page" area. Setting opaque=true here blocks the bgView.
+        // gray "outside page" area.
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
@@ -55,8 +61,7 @@ struct CanvasView: UIViewRepresentable {
 
         context.coordinator.bgView = bgView
 
-        // Observe contentSize — PK updates this on every zoom tick (user pinch or
-        // programmatic), whereas zoomScale KVO fires only for programmatic setZoomScale.
+        // Observe contentSize — PK updates this on every zoom tick.
         canvas.addObserver(
             context.coordinator,
             forKeyPath: #keyPath(UIScrollView.contentSize),
@@ -64,16 +69,10 @@ struct CanvasView: UIViewRepresentable {
             context: nil
         )
         context.coordinator.observedCanvas = canvas
-        canvas.drawingGestureRecognizer.addTarget(
-            context.coordinator,
-            action: #selector(Coordinator.handleLassoGesture(_:))
-        )
 
         DispatchQueue.main.async {
             guard canvas.bounds.width > 0 else { return }
 
-            // Fit the entire page on first appear; use as minimum so the user
-            // cannot zoom out past the page boundary.
             let fitZoom = min(
                 canvas.bounds.width  / pageSize.width,
                 canvas.bounds.height / pageSize.height
@@ -82,10 +81,6 @@ struct CanvasView: UIViewRepresentable {
             canvas.maximumZoomScale = 5.0
             canvas.setZoomScale(fitZoom, animated: false)
 
-            // Set contentInset for centering, then explicitly position the
-            // viewport to show the page. Without the contentOffset reset,
-            // setZoomScale leaves contentOffset in an undefined state and the
-            // page appears off-screen.
             context.coordinator.centerPage(in: canvas)
             canvas.contentOffset = CGPoint(
                 x: -canvas.contentInset.left,
@@ -115,14 +110,26 @@ struct CanvasView: UIViewRepresentable {
                 bgView.image = PageTemplate.render(kind: template, size: pageSize, isDark: isDark)
             }
         }
+
+        // Handle AI selection mode transitions.
+        if aiSelectionMode != coord.isInAISelectionMode {
+            if aiSelectionMode {
+                coord.enterAISelectionMode(in: canvas)
+            } else {
+                coord.exitAISelectionMode(in: canvas)
+            }
+        }
+
         // Keep coordinator's parent current so KVO callbacks use latest values.
         coord.parent = self
     }
 
     static func dismantleUIView(_ uiView: PKCanvasView, coordinator: Coordinator) {
+        if coordinator.isInAISelectionMode {
+            coordinator.exitAISelectionMode(in: uiView)
+        }
         coordinator.stopObserving()
         coordinator.rerenderTimer?.invalidate()
-        uiView.drawingGestureRecognizer.removeTarget(coordinator, action: nil)
     }
 
     // MARK: - Coordinator
@@ -133,56 +140,114 @@ struct CanvasView: UIViewRepresentable {
         weak var observedCanvas: PKCanvasView?
         var rerenderTimer: Timer?
 
-        /// Accumulated view-space bounding rect while user draws a lasso gesture.
-        private var lassoRawViewBounds: CGRect? = nil
+        // AI selection mode state
+        var isInAISelectionMode = false
+        private var aiPanGesture: UIPanGestureRecognizer?
+        private var aiHighlightView: UIView?
+        private var aiStartPoint: CGPoint?
 
         init(_ parent: CanvasView) { self.parent = parent }
 
-        /// Tracks the lasso gesture and, on completion, fires onSelectionBoundsChanged with
-        /// the bounding rect of the strokes enclosed by the lasso (drawing coordinates).
-        @objc func handleLassoGesture(_ sender: UIGestureRecognizer) {
-            guard let canvas = observedCanvas else { return }
-            guard canvas.tool is PKLassoTool else {
-                // Non-lasso tool gesture — ignore (selection already cleared in drawing-change callback)
-                return
+        // MARK: - AI Selection Mode
+
+        /// Enter selection mode: disables UIScrollView panning so finger drag draws a rectangle.
+        func enterAISelectionMode(in canvas: PKCanvasView) {
+            guard !isInAISelectionMode else { return }
+            isInAISelectionMode = true
+            // Disable built-in scroll so our single-finger pan doesn't conflict.
+            canvas.panGestureRecognizer.isEnabled = false
+
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleAIRegionPan(_:)))
+            // Finger (direct) touches only — pencil continues to draw normally.
+            pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+            pan.minimumNumberOfTouches = 1
+            pan.maximumNumberOfTouches = 1
+            canvas.addGestureRecognizer(pan)
+            aiPanGesture = pan
+        }
+
+        /// Exit selection mode: re-enables scroll and removes the pan gesture.
+        func exitAISelectionMode(in canvas: PKCanvasView) {
+            guard isInAISelectionMode else { return }
+            isInAISelectionMode = false
+            canvas.panGestureRecognizer.isEnabled = true
+            if let pan = aiPanGesture {
+                canvas.removeGestureRecognizer(pan)
+                aiPanGesture = nil
             }
+            aiHighlightView?.removeFromSuperview()
+            aiHighlightView = nil
+            aiStartPoint = nil
+        }
+
+        @objc func handleAIRegionPan(_ sender: UIPanGestureRecognizer) {
+            guard let canvas = observedCanvas else { return }
             let pt = sender.location(in: canvas)
+
             switch sender.state {
             case .began:
-                lassoRawViewBounds = CGRect(origin: pt, size: .zero)
-            case .changed:
-                if var b = lassoRawViewBounds {
-                    b = b.union(CGRect(origin: pt, size: .zero))
-                    lassoRawViewBounds = b
-                }
-            case .ended, .cancelled:
-                defer { lassoRawViewBounds = nil }
-                guard let viewBounds = lassoRawViewBounds,
-                      viewBounds.width > 5 || viewBounds.height > 5 else { return }
+                aiStartPoint = pt
+                let view = UIView()
+                view.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.12)
+                view.layer.borderColor = UIColor.systemBlue.cgColor
+                view.layer.borderWidth = 2
+                view.layer.cornerRadius = 4
+                view.frame = CGRect(origin: pt, size: .zero)
+                view.isUserInteractionEnabled = false
+                canvas.addSubview(view)
+                aiHighlightView = view
 
-                // Convert view-space bounds → drawing coordinate space
-                let z = canvas.zoomScale > 0 ? canvas.zoomScale : 1
-                let contentBounds = CGRect(
-                    x: (viewBounds.minX + canvas.contentOffset.x) / z,
-                    y: (viewBounds.minY + canvas.contentOffset.y) / z,
-                    width: viewBounds.width / z,
-                    height: viewBounds.height / z
+            case .changed:
+                guard let start = aiStartPoint else { return }
+                aiHighlightView?.frame = CGRect(
+                    x: min(start.x, pt.x),
+                    y: min(start.y, pt.y),
+                    width: abs(pt.x - start.x),
+                    height: abs(pt.y - start.y)
                 )
 
-                // Refine: union the renderBounds of strokes that fall inside the lasso area
-                let enclosed = canvas.drawing.strokes.filter { $0.renderBounds.intersects(contentBounds) }
-                let selectionBounds: CGRect
-                if !enclosed.isEmpty {
-                    selectionBounds = enclosed
-                        .reduce(CGRect.null) { $0.union($1.renderBounds) }
-                        .insetBy(dx: -15, dy: -15)
-                } else {
-                    selectionBounds = contentBounds
-                }
-                parent.onSelectionBoundsChanged?(selectionBounds)
+            case .ended:
+                let region = finishAIRegion(at: pt, canvas: canvas)
+                parent.onAIRegionSelected?(region)
+                parent.aiSelectionMode = false
+
+            case .cancelled:
+                aiHighlightView?.removeFromSuperview()
+                aiHighlightView = nil
+                aiStartPoint = nil
+                parent.onAIRegionSelected?(nil)
+                parent.aiSelectionMode = false
+
             default:
                 break
             }
+        }
+
+        private func finishAIRegion(at pt: CGPoint, canvas: PKCanvasView) -> CGRect? {
+            defer {
+                aiHighlightView?.removeFromSuperview()
+                aiHighlightView = nil
+                aiStartPoint = nil
+            }
+            guard let start = aiStartPoint else { return nil }
+            let viewRect = CGRect(
+                x: min(start.x, pt.x),
+                y: min(start.y, pt.y),
+                width: abs(pt.x - start.x),
+                height: abs(pt.y - start.y)
+            )
+            guard viewRect.width > 5, viewRect.height > 5 else { return nil }
+
+            // Convert view-space rect → drawing coordinate space.
+            // drawing_x = (view_x + contentOffset.x) / zoomScale
+            // contentOffset already encodes the centering inset, so no separate inset term needed.
+            let z = canvas.zoomScale > 0 ? canvas.zoomScale : 1
+            return CGRect(
+                x: (viewRect.minX + canvas.contentOffset.x) / z,
+                y: (viewRect.minY + canvas.contentOffset.y) / z,
+                width: viewRect.width / z,
+                height: viewRect.height / z
+            )
         }
 
         func stopObserving() {
@@ -195,12 +260,6 @@ struct CanvasView: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             parent.drawing = canvasView.drawing
-            // Clear lasso selection only when new ink is drawn, NOT when lasso selects
-            // strokes. PencilKit triggers this delegate on selection changes too, which
-            // would wipe the bounds we just set in handleLassoGesture.
-            if !(canvasView.tool is PKLassoTool) {
-                parent.onSelectionBoundsChanged?(nil)
-            }
         }
 
         // MARK: KVO — contentSize
@@ -216,14 +275,8 @@ struct CanvasView: UIViewRepresentable {
                   newSize.width > 1, newSize.height > 1,
                   let canvas = object as? PKCanvasView else { return }
 
-            // PK sets contentSize on every zoom tick (user pinch fires this each frame).
-            // Resize bgView immediately so the template tracks the ink at all times.
             bgView?.frame = CGRect(origin: .zero, size: newSize)
 
-            // After zoom settles: re-render template at true pixel size (crisp)
-            // AND re-apply centering insets safely outside the active gesture.
-            // contentInset is intentionally NOT set here — changing it mid-pinch
-            // causes UIScrollView to re-clamp contentOffset, making the page slide.
             rerenderTimer?.invalidate()
             rerenderTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self, weak canvas] _ in
                 guard let self, let canvas else { return }
@@ -238,7 +291,6 @@ struct CanvasView: UIViewRepresentable {
 
         // MARK: Centering
 
-        /// Sets contentInset so the page is centered when smaller than the viewport.
         func centerPage(in canvas: PKCanvasView) {
             let zoom   = canvas.zoomScale > 0 ? canvas.zoomScale : 1
             let scaled = CGSize(
