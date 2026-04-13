@@ -8,10 +8,11 @@ final class NotebookRepository {
         self.writer = writer
     }
 
-    func create(title: String, coverColor: String) throws -> Notebook {
+    func create(title: String, coverColor: String, folderID: String? = nil) throws -> Notebook {
         let now = Date()
         let nb = Notebook(
             id: UUID().uuidString,
+            folderID: folderID,
             title: title,
             coverColor: coverColor,
             createdAt: now,
@@ -28,6 +29,23 @@ final class NotebookRepository {
             try Notebook
                 .order(Column("updated_at").desc)
                 .fetchAll(db)
+        }
+    }
+
+    /// Fetches notebooks in a specific folder. Pass nil for root-level notebooks.
+    func fetchAll(folderID: String?) throws -> [Notebook] {
+        try writer.read { db in
+            if let fid = folderID {
+                return try Notebook
+                    .filter(Column("folder_id") == fid)
+                    .order(Column("updated_at").desc)
+                    .fetchAll(db)
+            } else {
+                return try Notebook
+                    .filter(Column("folder_id") == nil)
+                    .order(Column("updated_at").desc)
+                    .fetchAll(db)
+            }
         }
     }
 

@@ -7,6 +7,7 @@ import SwiftUI
 final class AppContainer {
     let database: AppDatabase
     let notebooks: NotebookRepository
+    let folders: FolderRepository
     let pages: PageRepository
     let aiMessages: AIMessageRepository
     var aiRouter: AIRouter
@@ -16,6 +17,7 @@ final class AppContainer {
     init(database: AppDatabase) {
         self.database = database
         self.notebooks = NotebookRepository(writer: database.writer)
+        self.folders = FolderRepository(writer: database.writer)
         self.pages = PageRepository(writer: database.writer)
         self.aiMessages = AIMessageRepository(writer: database.writer)
         self.aiRouter = AIRouter.bootstrap()
