@@ -48,6 +48,21 @@ enum Migrations {
             )
         }
 
+        migrator.registerMigration("v2_folders") { db in
+            try db.create(table: "folders") { t in
+                t.column("id", .text).primaryKey()
+                t.column("parent_folder_id", .text)
+                    .references("folders", onDelete: .cascade)
+                t.column("title", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("updated_at", .datetime).notNull()
+            }
+            try db.alter(table: "notebooks") { t in
+                t.add(column: "folder_id", .text)
+                    .references("folders", onDelete: .setNull)
+            }
+        }
+
         try migrator.migrate(writer)
     }
 }
