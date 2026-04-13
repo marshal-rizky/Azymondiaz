@@ -118,9 +118,7 @@ struct CanvasView: UIViewRepresentable {
         }
 
         // Sync active tool from action bar binding
-        if canvas.tool !== activeTool {
-            canvas.tool = activeTool
-        }
+        canvas.tool = activeTool
 
         // Keep coordinator's parent current so KVO callbacks use latest values.
         coord.parent = self
