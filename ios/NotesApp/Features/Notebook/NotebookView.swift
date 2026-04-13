@@ -10,9 +10,11 @@ struct NotebookView: View {
     @State private var showingShareSheet = false
     @State private var pdfData: Data?
 
-    // Tool picker state (replaces PKToolPicker)
-    @State private var activePenType: PKInkingTool.InkType = .pen
+    // Tool state
+    @State private var activeTool: ActiveTool = .pen
     @State private var activeColor: Color = AppColors.textPrimary
+    @State private var activeSize: CGFloat = 2
+    @State private var canvasUndoManager: UndoManager? = nil
 
     // AI state
     @State private var showingLassoMenu = false
@@ -361,7 +363,8 @@ struct NotebookView: View {
                     lassoSelectionBounds = rect
                     showingLassoMenu = true
                 },
-                activeTool: currentPKTool
+                activeTool: currentPKTool,
+                undoManager: $canvasUndoManager
             )
             .background(AppColors.canvasPaper)
         } else {

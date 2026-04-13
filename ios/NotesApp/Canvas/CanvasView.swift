@@ -36,6 +36,8 @@ struct CanvasView: UIViewRepresentable {
     var onAIRegionSelected: ((CGRect?) -> Void)? = nil
     /// The active drawing tool. Driven by the action bar. Setting this replaces PKToolPicker.
     var activeTool: PKTool = PKInkingTool(.pen, color: .black, width: 2)
+    /// Bound to the PKCanvasView's undoManager so the parent can call undo/redo.
+    @Binding var undoManager: UndoManager?
 
     private static let bgTag = 100
 
@@ -90,6 +92,7 @@ struct CanvasView: UIViewRepresentable {
             )
 
             canvas.tool = activeTool
+            self.parent.undoManager = canvas.undoManager
         }
         return canvas
     }
