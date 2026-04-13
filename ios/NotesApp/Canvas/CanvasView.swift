@@ -92,7 +92,7 @@ struct CanvasView: UIViewRepresentable {
             )
 
             canvas.tool = activeTool
-            self.parent.undoManager = canvas.undoManager
+            self.undoManager = canvas.undoManager
         }
         return canvas
     }
