@@ -1,6 +1,10 @@
 import SwiftUI
 import PencilKit
 
+enum ActiveTool: Equatable {
+    case pen, pencil, marker, eraser, lasso
+}
+
 struct NotebookView: View {
     @Environment(AppContainer.self) private var container
     @Environment(\.colorScheme) private var colorScheme
@@ -148,15 +152,16 @@ struct NotebookView: View {
     private var actionBar: some View {
         HStack(spacing: 3) {
             // Undo / Redo
-            abBtn(icon: "arrow.uturn.backward") { /* TODO: undo */ }
-            abBtn(icon: "arrow.uturn.forward")  { /* TODO: redo */ }
+            abBtn(icon: "arrow.uturn.backward") { canvasUndoManager?.undo() }
+            abBtn(icon: "arrow.uturn.forward")  { canvasUndoManager?.redo() }
             abSep
 
             // Tools
-            abToolBtn(icon: "pencil.tip",  penType: .pen)
-            abToolBtn(icon: "pencil",       penType: .pencil)
-            abToolBtn(icon: "squareshape.dotted.squareshape", penType: nil)  // eraser stub
-            abBtn(icon: "lasso") { /* TODO: lasso */ }
+            abToolBtn(icon: "pencil.tip",   tool: .pen)
+            abToolBtn(icon: "pencil",        tool: .pencil)
+            abToolBtn(icon: "highlighter",   tool: .marker)
+            abToolBtn(icon: "eraser",        tool: .eraser)
+            abToolBtn(icon: "lasso",         tool: .lasso)
             abSep
 
             // Colors
@@ -220,13 +225,9 @@ struct NotebookView: View {
     }
 
     @ViewBuilder
-    private func abToolBtn(icon: String, penType: PKInkingTool.InkType?) -> some View {
-        let isActive = penType != nil && activePenType == penType
-        Button {
-            if let pt = penType {
-                activePenType = pt
-            }
-        } label: {
+    private func abToolBtn(icon: String, tool: ActiveTool) -> some View {
+        let isActive = activeTool == tool
+        Button { activeTool = tool } label: {
             Image(systemName: icon)
                 .font(.system(size: 14))
                 .foregroundStyle(isActive ? .black : AppColors.textSecondary)
@@ -292,11 +293,12 @@ struct NotebookView: View {
 
     private var currentPKTool: PKTool {
         let uiColor = UIColor(activeColor)
-        switch activePenType {
-        case .pen:     return PKInkingTool(.pen,    color: uiColor, width: 2)
-        case .pencil:  return PKInkingTool(.pencil, color: uiColor, width: 2)
-        case .marker:  return PKInkingTool(.marker, color: uiColor, width: 10)
-        default:       return PKInkingTool(.pen,    color: uiColor, width: 2)
+        switch activeTool {
+        case .pen:     return PKInkingTool(.pen,    color: uiColor, width: activeSize)
+        case .pencil:  return PKInkingTool(.pencil, color: uiColor, width: activeSize)
+        case .marker:  return PKInkingTool(.marker, color: uiColor.withAlphaComponent(0.5), width: activeSize * 5)
+        case .eraser:  return PKEraserTool(.bitmap)
+        case .lasso:   return PKLassoTool()
         }
     }
 
