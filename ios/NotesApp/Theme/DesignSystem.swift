@@ -29,6 +29,9 @@ enum AppColors {
     // Canvas — always light so ink is readable
     static let canvasPaper = Color(hex: "#FAF8F3")!
     static let canvasRuled = Color(hex: "#C8D4D8")!
+
+    // Nav bar — dark navy (GoodNotes-style chrome)
+    static let navBar = Color(hex: "#1B2A4A")!
 }
 
 enum AppFonts {
