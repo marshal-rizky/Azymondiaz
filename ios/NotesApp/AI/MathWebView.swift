@@ -37,17 +37,14 @@ struct MathWebView: UIViewRepresentable {
         html,body{background:transparent;margin:0}
         body{font-family:-apple-system,sans-serif;font-size:16px;
              padding:8px 12px;word-wrap:break-word;visibility:hidden;
-             color:#000000}
-        pre{background:#f0f0f0;padding:8px;border-radius:6px;overflow-x:auto}
-        code{font-family:menlo,monospace;font-size:.88em;background:#f0f0f0;
-             padding:1px 4px;border-radius:3px}
-        pre code{background:none;padding:0}
+             color:#F0EDE6}
+        pre{background:#1C1C1E;padding:8px;border-radius:6px;overflow-x:auto;
+            border:1px solid #2A2A2E}
+        code{font-family:menlo,monospace;font-size:.88em;background:#1C1C1E;
+             padding:1px 4px;border-radius:3px;color:#C9A84C}
+        pre code{background:none;padding:0;color:#F0EDE6}
         .katex-display{overflow-x:auto;overflow-y:hidden}
-        @media(prefers-color-scheme:dark){
-          body{color:#ffffff}
-          pre,code{background:#3a3a3c}
-          pre code{background:none}
-        }
+        .katex{color:#F0EDE6}
         </style></head>
         <body><div id="c"></div>
         <script>
