@@ -10,15 +10,20 @@ iPad AI notes app — PencilKit canvas + Groq AI backend. Solo dev, Windows PC +
 | A — Python server | COMPLETE | FastAPI, 29 tests, live on Groq |
 | B — iOS app | COMPLETE | CI green, sideloaded via KSign |
 | C — AI integration | COMPLETE | All smoke tests passed 2026-04-12 |
-| D — Frontend redesign | **IN PROGRESS** | Gold & Black theme, folders — plan written, not started |
+| D — Frontend redesign | **COMPLETE** | Gold & Black theme, folders, bottom sheet chat, action bar |
 
-## Next up: Plan D (Frontend Redesign)
-- **Spec:** `docs/superpowers/specs/2026-04-12-frontend-redesign.md`
-- **Plan:** `docs/superpowers/plans/2026-04-12-frontend-redesign.md` — 9 tasks, inline execution
-- **Design tokens:** single source of truth → `ios/NotesApp/Theme/DesignSystem.swift` (to create, Task 1)
-- **Theme:** Gold `#C9A84C` accent, `#0A0A0C` bg, `#FAF8F3` canvas paper (always light)
-- **New feature:** Folder model with unlimited nesting (`parent_folder_id`), Tasks 2–5
-- **Key removals:** PKToolPicker gone — tools set programmatically via `@Binding var activeTool: PKTool`
+## Next up: Plan E (TBD)
+
+## Plan D — Completed 2026-04-13
+- **DesignSystem.swift** — single source of truth for all gold/black tokens
+- **Folders** — `Folder` model, GRDB v2 migration, `FolderRepository` (TDD), unlimited nesting
+- **LibraryView** — full redesign: folder rows, 8 cover gradient presets, dark creation sheet
+- **FolderView** — nested drill-in with breadcrumb bar
+- **NotebookView** — two-row action bar, PKToolPicker removed, tool state via `@Binding var activeTool: PKTool`
+- **ChatPanelView** — bottom sheet with drag handle, gold bubbles, scope toggle
+- **Secondary views** — TransformResult, LassoMenu, Settings, MathWebView all dark-themed
+- **App** — `.preferredColorScheme(.dark)` forced at root
+- **CI fix** — removed invalid `!==` identity check on `any PKTool` in `CanvasView.updateUIView`
 
 ## Tech
 - Server: Python 3.11, FastAPI, Groq SDK
