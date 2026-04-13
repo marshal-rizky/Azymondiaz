@@ -1,6 +1,14 @@
 // ios/NotesApp/Features/Library/LibraryView.swift
 import SwiftUI
 
+// MARK: - Sidebar destination
+
+private enum SidebarItem: Hashable {
+    case documents, folders, settings
+}
+
+// MARK: - LibraryView
+
 struct LibraryView: View {
     @Environment(AppContainer.self) private var container
     /// nil = Library root.  Set by FolderView when drilling in.
@@ -11,98 +19,199 @@ struct LibraryView: View {
     @State private var newTitle = ""
     @State private var selectedCoverIndex = 0
     @State private var creatingFolder = false
-    @State private var searchText = ""
+    @State private var sidebarSelection: SidebarItem? = .documents
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: AppSpacing.grid)]
 
     var body: some View {
+        NavigationSplitView {
+            sidebar
+        } detail: {
+            detailView
+        }
+        .navigationSplitViewStyle(.balanced)
+        .sheet(isPresented: $showingCreationSheet) { creationSheet }
+        .onAppear {
+            if viewModel == nil {
+                viewModel = LibraryViewModel(
+                    notebookRepo: container.notebooks,
+                    folderRepo: container.folders,
+                    currentFolderID: currentFolder?.id
+                )
+            }
+            viewModel?.reload()
+        }
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        ZStack {
+            AppColors.surface.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 0) {
+                // App title
+                Text("Azymondiaz")
+                    .font(AppFonts.navTitle)
+                    .foregroundStyle(AppColors.textPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 24)
+                    .padding(.bottom, 20)
+
+                // Nav items
+                sidebarRow(item: .documents,
+                           icon: "doc.text.fill",
+                           label: "Documents")
+                sidebarRow(item: .folders,
+                           icon: "folder.fill",
+                           label: "Folders")
+
+                Spacer()
+
+                Divider().background(AppColors.border)
+
+                sidebarRow(item: .settings,
+                           icon: "gear",
+                           label: "Settings")
+                    .padding(.bottom, 12)
+            }
+            .padding(.top, 0)
+        }
+        .navigationBarHidden(true)
+        .frame(minWidth: 200, idealWidth: 220)
+    }
+
+    private func sidebarRow(item: SidebarItem, icon: String, label: String) -> some View {
+        let isSelected = sidebarSelection == item
+        return Button {
+            sidebarSelection = item
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isSelected ? AppColors.gold : AppColors.textSecondary)
+                    .frame(width: 22)
+                Text(label)
+                    .font(AppFonts.bodyBold)
+                    .foregroundStyle(isSelected ? AppColors.gold : AppColors.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                isSelected
+                    ? AppColors.gold.opacity(0.12)
+                    : Color.clear
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.chip))
+            .padding(.horizontal, 8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Detail column
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch sidebarSelection {
+        case .documents, .none:
+            documentsDetail
+        case .folders:
+            foldersDetail
+        case .settings:
+            NavigationStack { SettingsView() }
+        }
+    }
+
+    private var documentsDetail: some View {
         NavigationStack {
             ZStack {
                 AppColors.bg.ignoresSafeArea()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        searchBar
+                        detailHeader(title: "Documents")
+                        filterBar
                         if let vm = viewModel {
-                            if !vm.folders.isEmpty {
-                                sectionHeader("Folders")
-                                folderRows(vm: vm)
-                            }
-                            sectionHeader(currentFolder == nil ? "Notebooks" : "Notebooks — \(vm.notebooks.count)")
                             notebookGrid(vm: vm)
                         }
                     }
                 }
             }
-            .navigationTitle(currentFolder?.title ?? "My Library")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(AppColors.surface, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if currentFolder == nil {
-                        NavigationLink(destination: SettingsView()) {
-                            Image(systemName: "gear")
-                                .foregroundStyle(AppColors.gold)
+            .navigationBarHidden(true)
+        }
+    }
+
+    private var foldersDetail: some View {
+        NavigationStack {
+            ZStack {
+                AppColors.bg.ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        detailHeader(title: "Folders")
+                        if let vm = viewModel {
+                            folderRows(vm: vm)
+                                .padding(.top, 8)
                         }
                     }
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showingCreationSheet = true } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.black)
-                            .frame(width: 30, height: 30)
-                            .background(AppColors.goldGradient)
-                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
-                    }
-                }
             }
-            .sheet(isPresented: $showingCreationSheet) { creationSheet }
-            .onAppear {
-                if viewModel == nil {
-                    viewModel = LibraryViewModel(
-                        notebookRepo: container.notebooks,
-                        folderRepo: container.folders,
-                        currentFolderID: currentFolder?.id
-                    )
-                }
-                viewModel?.reload()
-            }
+            .navigationBarHidden(true)
         }
     }
 
-    // MARK: - Search bar
+    // MARK: - Detail header
 
-    private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(AppColors.textTertiary)
-                .font(.system(size: 14))
-            Text("Search notebooks…")
-                .font(AppFonts.body)
-                .foregroundStyle(AppColors.textTertiary)
+    private func detailHeader(title: String) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(title)
+                .font(.largeTitle).fontWeight(.bold)
+                .foregroundStyle(AppColors.textPrimary)
             Spacer()
+            // Search icon button
+            Button {
+                // search — placeholder
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(AppColors.textSecondary)
+                    .frame(width: 36, height: 36)
+                    .background(AppColors.surface2)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.chip))
+                    .overlay(RoundedRectangle(cornerRadius: AppRadius.chip).stroke(AppColors.border, lineWidth: 0.5))
+            }
+            // + New pill
+            Button { showingCreationSheet = true } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("New")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(.black)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(AppColors.goldGradient)
+                .clipShape(Capsule())
+            }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 38)
-        .background(AppColors.surface2)
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.chip))
-        .overlay(RoundedRectangle(cornerRadius: AppRadius.chip).stroke(AppColors.border, lineWidth: 0.5))
         .padding(.horizontal, AppSpacing.page)
-        .padding(.top, 12)
+        .padding(.top, 20)
         .padding(.bottom, 8)
     }
 
-    // MARK: - Section header
+    // MARK: - Filter bar
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(AppFonts.sectionHeader)
-            .tracking(1.0)
-            .foregroundStyle(AppColors.textTertiary)
-            .padding(.horizontal, AppSpacing.page)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
+    private var filterBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 12))
+                .foregroundStyle(AppColors.textTertiary)
+            Text("All")
+                .font(AppFonts.caption)
+                .foregroundStyle(AppColors.textTertiary)
+            Spacer()
+        }
+        .padding(.horizontal, AppSpacing.page)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Folder rows
@@ -127,7 +236,11 @@ struct LibraryView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(AppColors.surface3)
                 .frame(width: 30, height: 30)
-                .overlay(Text("📁").font(.system(size: 15)))
+                .overlay(
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(AppColors.gold)
+                )
             Text(folder.title)
                 .font(AppFonts.bodyBold)
                 .foregroundStyle(AppColors.textPrimary)
