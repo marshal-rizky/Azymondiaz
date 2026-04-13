@@ -34,6 +34,8 @@ struct CanvasView: UIViewRepresentable {
     /// Called when the AI-region gesture completes. `nil` means no valid rectangle was drawn
     /// (caller should fall back to full-page context).
     var onAIRegionSelected: ((CGRect?) -> Void)? = nil
+    /// The active drawing tool. Driven by the action bar. Setting this replaces PKToolPicker.
+    var activeTool: PKTool = PKInkingTool(.pen, color: .black, width: 2)
 
     private static let bgTag = 100
 
@@ -87,12 +89,7 @@ struct CanvasView: UIViewRepresentable {
                 y: -canvas.contentInset.top
             )
 
-            if let window = canvas.window,
-               let picker = PKToolPicker.shared(for: window) {
-                picker.setVisible(true, forFirstResponder: canvas)
-                picker.addObserver(canvas)
-                canvas.becomeFirstResponder()
-            }
+            canvas.tool = activeTool
         }
         return canvas
     }
@@ -118,6 +115,11 @@ struct CanvasView: UIViewRepresentable {
             } else {
                 coord.exitAISelectionMode(in: canvas)
             }
+        }
+
+        // Sync active tool from action bar binding
+        if canvas.tool !== activeTool {
+            canvas.tool = activeTool
         }
 
         // Keep coordinator's parent current so KVO callbacks use latest values.
@@ -188,8 +190,8 @@ struct CanvasView: UIViewRepresentable {
             case .began:
                 aiStartPoint = pt
                 let view = UIView()
-                view.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.12)
-                view.layer.borderColor = UIColor.systemBlue.cgColor
+                view.backgroundColor = UIColor(AppColors.gold).withAlphaComponent(0.08)
+                view.layer.borderColor = UIColor(AppColors.gold).cgColor
                 view.layer.borderWidth = 2
                 view.layer.cornerRadius = 4
                 view.frame = CGRect(origin: pt, size: .zero)

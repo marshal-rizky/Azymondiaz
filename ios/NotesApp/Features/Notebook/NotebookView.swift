@@ -10,79 +10,48 @@ struct NotebookView: View {
     @State private var showingShareSheet = false
     @State private var pdfData: Data?
 
+    // Tool picker state (replaces PKToolPicker)
+    @State private var activePenType: PKInkingTool.InkType = .pen
+    @State private var activeColor: Color = AppColors.textPrimary
+
     // AI state
     @State private var showingLassoMenu = false
     @State private var showingTransformResult: TransformResponse? = nil
     @State private var transformInFlight = false
     @State private var transformError: String? = nil
     @State private var showingChat = false
-    /// Stored once so re-renders from drawing changes don't recreate/reset the view model.
     @State private var chatVM: ChatViewModel? = nil
-    /// True while the canvas is in AI finger-selection mode (drawing the crop rectangle).
     @State private var aiSelectionMode = false
-    /// Bounds of the AI region selection in drawing coordinates. Set by onAIRegionSelected.
     @State private var lassoSelectionBounds: CGRect? = nil
 
     var body: some View {
-        HStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             mainContent
             if showingChat, let cvm = chatVM {
-                Divider()
                 ChatPanelView(viewModel: cvm, onClose: { showingChat = false })
-                    .transition(.move(edge: .trailing))
+                    .transition(.move(edge: .bottom))
+                    .zIndex(10)
             }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showingChat)
         .navigationTitle(notebook.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(AppColors.surface, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            if let vm = viewModel {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingChat.toggle()
-                    } label: {
-                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
-                    }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    exportPDF(vm: viewModel!)
+                } label: {
+                    Text("Export PDF")
+                        .font(AppFonts.caption).fontWeight(.semibold)
+                        .foregroundStyle(AppColors.gold)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(AppColors.surface3)
+                        .clipShape(Capsule())
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        // Enter finger-selection mode. User drags to define the AI crop region,
-                        // then onAIRegionSelected fires → sets lassoSelectionBounds → shows menu.
-                        aiSelectionMode = true
-                    } label: {
-                        Label(aiSelectionMode ? "Selecting…" : "AI", systemImage: "sparkles")
-                    }
-                    .disabled(transformInFlight || aiSelectionMode)
-                    .popover(isPresented: $showingLassoMenu) {
-                        LassoMenuView(
-                            onSelect: { action in Task { await runTransform(action: action) } },
-                            onDismiss: { showingLassoMenu = false }
-                        )
-                        .presentationCompactAdaptation(.popover)
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Line") { vm.addPage(template: .line) }
-                        Button("Grid") { vm.addPage(template: .grid) }
-                        Button("Blank") { vm.addPage(template: .blank) }
-                    } label: {
-                        Label("Add page", systemImage: "plus.square")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        exportPDF(vm: vm)
-                    } label: {
-                        Label("Export PDF", systemImage: "square.and.arrow.up")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(role: .destructive) {
-                        vm.deleteCurrentPage()
-                    } label: {
-                        Label("Delete page", systemImage: "trash")
-                    }
-                }
+                .disabled(viewModel == nil)
             }
         }
         .onAppear {
@@ -97,7 +66,6 @@ struct NotebookView: View {
         }
         .onChange(of: showingChat) { _, isShowing in
             if isShowing {
-                // Only build if not already pre-set (e.g. "Ask in Chat" from transform result).
                 if chatVM == nil { rebuildChatVM() }
             } else {
                 chatVM = nil
@@ -130,8 +98,6 @@ struct NotebookView: View {
                 onDismiss: { showingTransformResult = nil },
                 onSendToChat: { text in
                     showingTransformResult = nil
-                    // Inject the transform result as an assistant bubble so the
-                    // user sees it as context and can type a follow-up question.
                     rebuildChatVM(injectedMessage: text)
                     withAnimation { showingChat = true }
                 }
@@ -152,31 +118,183 @@ struct NotebookView: View {
 
     private var mainContent: some View {
         VStack(spacing: 0) {
-            if !container.aiRouter.isConfigured {
-                Text("AI offline — configure in Settings")
-                    .font(.caption)
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.gray.opacity(0.2))
+            actionBar
+            if aiSelectionMode {
+                aiBanner
             } else if container.aiRouter.activeLabel == "groq" {
-                Text("Using Groq fallback")
-                    .font(.caption)
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.orange.opacity(0.2))
+                routingBadge(text: "Groq fallback")
+            } else if !container.aiRouter.isConfigured {
+                routingBadge(text: "AI offline — configure in Settings")
             }
             HStack(spacing: 0) {
                 if let vm = viewModel {
                     pageStrip(vm: vm)
-                        .frame(width: 140)
-                        .background(Color(.secondarySystemBackground))
-                    Divider()
+                        .frame(width: 88)
+                        .background(AppColors.surface)
+                    Divider().background(AppColors.border)
                     canvasArea(vm: vm)
                 } else {
-                    ProgressView()
+                    ProgressView().tint(AppColors.gold)
                         .frame(maxWidth: .infinity)
                 }
             }
+        }
+    }
+
+    // MARK: - Action bar
+
+    private var actionBar: some View {
+        HStack(spacing: 3) {
+            // Undo / Redo
+            abBtn(icon: "arrow.uturn.backward") { /* TODO: undo */ }
+            abBtn(icon: "arrow.uturn.forward")  { /* TODO: redo */ }
+            abSep
+
+            // Tools
+            abToolBtn(icon: "pencil.tip",  penType: .pen)
+            abToolBtn(icon: "pencil",       penType: .pencil)
+            abToolBtn(icon: "squareshape.dotted.squareshape", penType: nil)  // eraser stub
+            abBtn(icon: "lasso") { /* TODO: lasso */ }
+            abSep
+
+            // Colors
+            ForEach([AppColors.textPrimary, AppColors.gold,
+                     Color(hex: "#5C6BC0")!, Color(hex: "#26A69A")!], id: \.self) { color in
+                colorDot(color)
+            }
+            abSep
+
+            // AI + Chat
+            abBtn(icon: "sparkles", isActive: aiSelectionMode) {
+                aiSelectionMode = true
+            }
+            .popover(isPresented: $showingLassoMenu) {
+                LassoMenuView(
+                    onSelect: { action in Task { await runTransform(action: action) } },
+                    onDismiss: { showingLassoMenu = false }
+                )
+                .presentationCompactAdaptation(.popover)
+            }
+            abBtn(icon: "bubble.left.and.bubble.right", isActive: showingChat) {
+                showingChat.toggle()
+            }
+
+            Spacer()
+
+            // Page actions
+            if let vm = viewModel {
+                Menu {
+                    Button("Line")  { vm.addPage(template: .line) }
+                    Button("Grid")  { vm.addPage(template: .grid) }
+                    Button("Blank") { vm.addPage(template: .blank) }
+                } label: {
+                    Image(systemName: "rectangle.stack.badge.plus")
+                        .font(.system(size: 14))
+                        .foregroundStyle(AppColors.textSecondary)
+                        .frame(width: 30, height: 30)
+                }
+                abBtn(icon: "trash", role: .destructive) { vm.deleteCurrentPage() }
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(AppColors.surface2)
+        .overlay(alignment: .bottom) { Divider().background(AppColors.border) }
+    }
+
+    @ViewBuilder
+    private func abBtn(icon: String,
+                       isActive: Bool = false,
+                       role: ButtonRole? = nil,
+                       action: @escaping () -> Void) -> some View {
+        Button(role: role, action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(isActive ? AppColors.gold : AppColors.textSecondary)
+                .frame(width: 30, height: 30)
+                .background(isActive ? AppColors.gold.opacity(0.12) : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+    }
+
+    @ViewBuilder
+    private func abToolBtn(icon: String, penType: PKInkingTool.InkType?) -> some View {
+        let isActive = penType != nil && activePenType == penType
+        Button {
+            if let pt = penType {
+                activePenType = pt
+            }
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(isActive ? .black : AppColors.textSecondary)
+                .frame(width: 30, height: 30)
+                .background(isActive
+                            ? AppColors.goldGradient
+                            : LinearGradient(colors: [.clear], startPoint: .top, endPoint: .bottom))
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+    }
+
+    @ViewBuilder
+    private func colorDot(_ color: Color) -> some View {
+        let isActive = activeColor == color
+        Circle()
+            .fill(color)
+            .frame(width: 14, height: 14)
+            .overlay(Circle().stroke(isActive ? AppColors.gold : Color.clear, lineWidth: 2).padding(-2))
+            .onTapGesture { activeColor = color }
+    }
+
+    private var abSep: some View {
+        Rectangle()
+            .fill(AppColors.border2)
+            .frame(width: 1, height: 20)
+            .padding(.horizontal, 4)
+    }
+
+    private var aiBanner: some View {
+        HStack {
+            Image(systemName: "sparkles").foregroundStyle(.black)
+            Text("Drag with finger to select a region for AI")
+                .font(AppFonts.caption).fontWeight(.semibold)
+                .foregroundStyle(.black)
+            Spacer()
+            Button("Cancel") { aiSelectionMode = false }
+                .font(AppFonts.caption)
+                .foregroundStyle(.black.opacity(0.7))
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 36)
+        .background(AppColors.goldGradient)
+    }
+
+    private func routingBadge(text: String) -> some View {
+        HStack {
+            Spacer()
+            Text(text)
+                .font(AppFonts.micro).fontWeight(.semibold)
+                .foregroundStyle(AppColors.gold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(AppColors.gold.opacity(0.1))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(AppColors.gold.opacity(0.2), lineWidth: 0.5))
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .background(AppColors.surface)
+    }
+
+    // MARK: - Active tool
+
+    private var currentPKTool: PKTool {
+        let uiColor = UIColor(activeColor)
+        switch activePenType {
+        case .pen:     return PKInkingTool(.pen,    color: uiColor, width: 2)
+        case .pencil:  return PKInkingTool(.pencil, color: uiColor, width: 2)
+        case .marker:  return PKInkingTool(.marker, color: uiColor, width: 10)
+        default:       return PKInkingTool(.pen,    color: uiColor, width: 2)
         }
     }
 
@@ -194,28 +312,31 @@ struct NotebookView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(12)
+            .padding(8)
         }
     }
 
     private func pageStripThumb(page: Page, isSelected: Bool) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             Group {
                 if let blob = page.thumbnailBlob, let img = UIImage(data: blob) {
                     Image(uiImage: img).resizable().scaledToFit()
                 } else {
-                    Rectangle().fill(Color(.systemBackground))
+                    Rectangle().fill(AppColors.surface3)
                 }
             }
             .aspectRatio(3.0/4.0, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.thumb))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(isSelected ? Color.accentColor : Color.gray.opacity(0.3),
-                            lineWidth: isSelected ? 2 : 1)
+                RoundedRectangle(cornerRadius: AppRadius.thumb)
+                    .stroke(isSelected ? AppColors.gold : AppColors.border,
+                            lineWidth: isSelected ? 2 : 0.5)
             )
+            .shadow(color: isSelected ? AppColors.gold.opacity(0.25) : .black.opacity(0.3),
+                    radius: isSelected ? 4 : 2, y: 1)
             Text("\(page.pageIndex + 1)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(AppFonts.micro)
+                .foregroundStyle(AppColors.textTertiary)
         }
     }
 
@@ -234,30 +355,19 @@ struct NotebookView: View {
                 allowsFingerDrawing: false,
                 template: page.template,
                 pageSize: pageSize,
-                isDark: false,  // Page is always white; dark mode applies to chrome, not paper
+                isDark: false,
                 aiSelectionMode: $aiSelectionMode,
                 onAIRegionSelected: { rect in
-                    lassoSelectionBounds = rect  // nil → full-page fallback in runTransform
+                    lassoSelectionBounds = rect
                     showingLassoMenu = true
-                }
+                },
+                activeTool: currentPKTool
             )
-            .background(Color(.secondarySystemBackground))
-            .overlay(alignment: .top) {
-                if aiSelectionMode {
-                    Text("Drag with finger to select AI region")
-                        .font(.subheadline.bold())
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.accentColor.opacity(0.9))
-                        .foregroundStyle(.white)
-                        .cornerRadius(8)
-                        .padding(.top, 12)
-                        .allowsHitTesting(false)
-                }
-            }
+            .background(AppColors.canvasPaper)
         } else {
             Text("No page")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(AppColors.textTertiary)
         }
     }
 
@@ -286,7 +396,6 @@ struct NotebookView: View {
         guard let vm = viewModel else { return }
         vm.flushSave()
         let drawing = vm.currentDrawing
-        // Use lasso selection bounds if the user made a selection; fall back to full drawing bounds.
         let bounds: CGRect
         if let sel = lassoSelectionBounds, sel.width > 5, sel.height > 5 {
             bounds = sel
@@ -295,7 +404,7 @@ struct NotebookView: View {
         } else {
             bounds = drawing.bounds.insetBy(dx: -10, dy: -10)
         }
-        lassoSelectionBounds = nil  // consumed; next transform starts fresh
+        lassoSelectionBounds = nil
         let base64 = LassoRasterizer.rasterize(selection: drawing, bounds: bounds)
         guard !base64.isEmpty else {
             transformError = "Nothing to transform — draw something first."
@@ -317,7 +426,6 @@ struct NotebookView: View {
 
     private func exportPDF(vm: NotebookViewModel) {
         vm.flushSave()
-        let pageSize = CGSize(width: 1024, height: 1366)
         let renderables: [RenderablePage] = vm.pages.map { p in
             let drawing = (p.drawingBlob.flatMap { try? PKDrawing(data: $0) }) ?? PKDrawing()
             return RenderablePage(drawing: drawing, template: p.template, size: pageSize)
