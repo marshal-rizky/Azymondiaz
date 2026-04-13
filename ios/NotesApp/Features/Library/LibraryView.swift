@@ -105,16 +105,3 @@ private struct NotebookCoverTile: View {
         }
     }
 }
-
-extension Color {
-    init?(hex: String) {
-        var s = hex
-        if s.hasPrefix("#") { s.removeFirst() }
-        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
-        self.init(
-            red:   Double((v >> 16) & 0xFF) / 255.0,
-            green: Double((v >> 8)  & 0xFF) / 255.0,
-            blue:  Double( v        & 0xFF) / 255.0
-        )
-    }
-}
