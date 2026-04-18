@@ -28,4 +28,21 @@ final class PageTemplateTests: XCTestCase {
         let dark  = PageTemplate.render(kind: .blank, size: size, isDark: true).pngData()
         XCTAssertNotEqual(light, dark)
     }
+
+    func test_cornell_renders_differently_from_blank_and_line() {
+        let size = CGSize(width: 200, height: 300)
+        let blank   = PageTemplate.render(kind: .blank,   size: size, isDark: false).pngData()
+        let line    = PageTemplate.render(kind: .line,    size: size, isDark: false).pngData()
+        let cornell = PageTemplate.render(kind: .cornell, size: size, isDark: false).pngData()
+        XCTAssertNotNil(cornell)
+        XCTAssertNotEqual(cornell, blank)
+        XCTAssertNotEqual(cornell, line)
+    }
+
+    func test_cornell_dark_differs_from_cornell_light() {
+        let size  = CGSize(width: 200, height: 300)
+        let light = PageTemplate.render(kind: .cornell, size: size, isDark: false).pngData()
+        let dark  = PageTemplate.render(kind: .cornell, size: size, isDark: true).pngData()
+        XCTAssertNotEqual(light, dark)
+    }
 }

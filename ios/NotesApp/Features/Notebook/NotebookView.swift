@@ -10,6 +10,14 @@ struct NotebookView: View {
     @Environment(\.dismiss) private var dismiss
 
     let notebook: Notebook
+    /// The session ID this pane is associated with. Passed by SplitNotebookView.
+    var sessionID: UUID? = nil
+    /// Called when the user taps SPLIT. Nil = split already active (hide the button).
+    var onSplit: (() -> Void)? = nil
+    /// Called when user taps the + add-tab button. Provided by SplitNotebookView.
+    var onAdd: (() -> Void)? = nil
+    /// Set to false in split-screen panes — the parent SplitNotebookView owns the tab bar.
+    var showTabBar: Bool = true
     @State private var viewModel: NotebookViewModel?
     @State private var showingShareSheet = false
     @State private var pdfData: Data?
@@ -46,7 +54,9 @@ struct NotebookView: View {
         .navigationBarHidden(true)
         .onAppear {
             if viewModel == nil {
-                let vm = NotebookViewModel(notebook: notebook, repo: container.pages)
+                let vm = NotebookViewModel(notebook: notebook,
+                                           repo: container.pages,
+                                           mediaRepo: container.pageMedia)
                 vm.load()
                 viewModel = vm
             }
@@ -108,6 +118,7 @@ struct NotebookView: View {
 
     private var mainContent: some View {
         VStack(spacing: 0) {
+            if showTabBar { tabBarRow }
             navBar
             toolbar2
             ZStack(alignment: .top) {
@@ -228,6 +239,14 @@ struct NotebookView: View {
                    disabled: !(canvasUndoManager?.canRedo ?? false)) {
                 canvasUndoManager?.redo()
             }
+            if let vm = viewModel {
+                tb2Btn(
+                    icon: vm.currentPageIsDark ? "sun.min" : "moon",
+                    isActive: vm.currentPageIsDark
+                ) {
+                    vm.toggleCurrentPageTheme()
+                }
+            }
 
             tb2Sep
 
@@ -235,6 +254,13 @@ struct NotebookView: View {
             tb2Btn(icon: "bubble.left.and.bubble.right", isActive: showingChat) { showingChat.toggle() }
 
             Spacer()
+
+            if let vm = viewModel, let page = vm.currentPage {
+                ImportButton(
+                    mode: .notebook(notebook, page.id),
+                    onMediaInserted: { vm.addMedia($0) }
+                )
+            }
 
             if container.aiRouter.activeLabel == "groq" {
                 routingBadge(text: "Groq fallback")
@@ -249,6 +275,7 @@ struct NotebookView: View {
                     Button("Line")  { vm.addPage(template: .line) }
                     Button("Grid")  { vm.addPage(template: .grid) }
                     Button("Blank") { vm.addPage(template: .blank) }
+                    Button("Cornell") { vm.addPage(template: .cornell) }
                 } label: {
                     Image(systemName: "rectangle.stack.badge.plus")
                         .font(.system(size: 13))
@@ -304,6 +331,23 @@ struct NotebookView: View {
             .background(AppColors.gold.opacity(0.1))
             .clipShape(Capsule())
             .overlay(Capsule().stroke(AppColors.gold.opacity(0.2), lineWidth: 0.5))
+    }
+
+    // MARK: - Tab bar row
+
+    @ViewBuilder
+    private var tabBarRow: some View {
+        NotebookTabBar(
+            sessions: container.sessions.sessions,
+            activeSessionID: Binding(
+                get: { sessionID ?? container.sessions.activeSessionID },
+                set: { container.sessions.activeSessionID = $0 }
+            ),
+            onClose: { id in container.sessions.close(sessionID: id) },
+            onAdd: { onAdd?() },
+            onSplit: onSplit,
+            canAdd: onAdd != nil
+        )
     }
 
     // MARK: - Floating tool pill
@@ -632,14 +676,17 @@ struct NotebookView: View {
                 allowsFingerDrawing: false,
                 template: page.template,
                 pageSize: pageSize,
-                isDark: false,
+                isDark: vm.currentPageIsDark,
                 aiSelectionMode: $aiSelectionMode,
                 onAIRegionSelected: { rect in
                     lassoSelectionBounds = rect
                     showingLassoMenu = true
                 },
                 activeTool: currentPKTool,
-                undoManager: $canvasUndoManager
+                undoManager: $canvasUndoManager,
+                mediaItems: vm.currentMediaItems,
+                onMediaUpdated: { vm.updateMedia($0) },
+                onMediaDeleted: { vm.deleteMedia(id: $0) }
             )
             .background(AppColors.canvasPaper)
         } else {

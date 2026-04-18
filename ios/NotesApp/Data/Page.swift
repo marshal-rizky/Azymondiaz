@@ -5,6 +5,7 @@ enum PageTemplateKind: String, Codable, CaseIterable {
     case line
     case grid
     case blank
+    case cornell
 }
 
 struct Page: Identifiable, Hashable, Codable, FetchableRecord, PersistableRecord {
@@ -12,6 +13,7 @@ struct Page: Identifiable, Hashable, Codable, FetchableRecord, PersistableRecord
     var notebookId: String
     var pageIndex: Int
     var template: PageTemplateKind
+    var theme: String       // "light" | "dark"
     var drawingBlob: Data?
     var thumbnailBlob: Data?
     var createdAt: Date
@@ -24,6 +26,7 @@ struct Page: Identifiable, Hashable, Codable, FetchableRecord, PersistableRecord
         case notebookId = "notebook_id"
         case pageIndex = "page_index"
         case template
+        case theme
         case drawingBlob = "drawing_blob"
         case thumbnailBlob = "thumbnail_blob"
         case createdAt = "created_at"

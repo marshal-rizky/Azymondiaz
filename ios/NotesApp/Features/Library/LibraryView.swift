@@ -178,6 +178,10 @@ struct LibraryView: View {
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.chip))
                     .overlay(RoundedRectangle(cornerRadius: AppRadius.chip).stroke(AppColors.border, lineWidth: 0.5))
             }
+            ImportButton(
+                mode: .library,
+                onNewNotebookCreated: { _ in viewModel?.reload() }
+            )
             // + New pill
             Button { showingCreationSheet = true } label: {
                 HStack(spacing: 5) {
@@ -279,7 +283,7 @@ struct LibraryView: View {
         .padding(.horizontal, AppSpacing.page)
         .padding(.bottom, 24)
         .navigationDestination(for: Notebook.self) { notebook in
-            NotebookView(notebook: notebook)
+            SplitNotebookView(initialNotebook: notebook)
         }
     }
 

@@ -10,6 +10,8 @@ final class AppContainer {
     let folders: FolderRepository
     let pages: PageRepository
     let aiMessages: AIMessageRepository
+    let pageMedia: PageMediaRepository
+    let sessions: OpenSessionsManager
     var aiRouter: AIRouter
     var syncClient: SyncClient?
     var syncScheduler: SyncScheduler?
@@ -20,6 +22,8 @@ final class AppContainer {
         self.folders = FolderRepository(writer: database.writer)
         self.pages = PageRepository(writer: database.writer)
         self.aiMessages = AIMessageRepository(writer: database.writer)
+        self.pageMedia = PageMediaRepository(writer: database.writer)
+        self.sessions = OpenSessionsManager()
         self.aiRouter = AIRouter.bootstrap()
         // Defer sync setup — needs reloadAI() after init finishes
     }

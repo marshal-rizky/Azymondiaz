@@ -13,16 +13,23 @@ final class NotebookViewModel {
     var errorMessage: String?
 
     private let repo: PageRepository
+    private(set) var currentMediaItems: [PageMediaItem] = []
+    private let mediaRepo: PageMediaRepository
     private var saveWorkItem: DispatchWorkItem?
 
-    init(notebook: Notebook, repo: PageRepository) {
+    init(notebook: Notebook, repo: PageRepository, mediaRepo: PageMediaRepository) {
         self.notebook = notebook
         self.repo = repo
+        self.mediaRepo = mediaRepo
     }
 
     var currentPage: Page? {
         guard pages.indices.contains(currentPageIndex) else { return nil }
         return pages[currentPageIndex]
+    }
+
+    var currentPageIsDark: Bool {
+        currentPage?.theme == "dark"
     }
 
     func load() {
@@ -74,6 +81,38 @@ final class NotebookViewModel {
         }
     }
 
+    func toggleCurrentPageTheme() {
+        guard let page = currentPage,
+              let idx = pages.firstIndex(where: { $0.id == page.id }) else { return }
+        let newTheme = page.theme == "dark" ? "light" : "dark"
+        do {
+            try repo.updateTheme(pageId: page.id, theme: newTheme)
+            pages[idx].theme = newTheme
+            // Note: mutate pages[idx] synchronously on main thread before any
+            // in-flight saveWorkItem fires — persistCurrentDrawing() reads the
+            // updated theme from pages[currentPageIndex], so ordering is correct.
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func updateMedia(_ item: PageMediaItem) {
+        try? mediaRepo.update(item)
+        if let idx = currentMediaItems.firstIndex(where: { $0.id == item.id }) {
+            currentMediaItems[idx] = item
+        }
+    }
+
+    func deleteMedia(id: String) {
+        try? mediaRepo.delete(id: id)
+        currentMediaItems.removeAll { $0.id == id }
+    }
+
+    func addMedia(_ item: PageMediaItem) {
+        try? mediaRepo.insert(item)
+        currentMediaItems.append(item)
+    }
+
     /// Force-write the current drawing immediately. Call on background / dismiss.
     func flushSave() {
         saveWorkItem?.cancel()
@@ -86,12 +125,18 @@ final class NotebookViewModel {
     private func loadDrawingForCurrentPage() {
         guard let page = currentPage else {
             currentDrawing = PKDrawing()
+            currentMediaItems = []
             return
         }
         if let blob = page.drawingBlob, let restored = try? PKDrawing(data: blob) {
             currentDrawing = restored
         } else {
             currentDrawing = PKDrawing()
+        }
+        if let page = currentPage {
+            currentMediaItems = (try? mediaRepo.fetchAll(pageId: page.id)) ?? []
+        } else {
+            currentMediaItems = []
         }
     }
 
@@ -115,7 +160,7 @@ final class NotebookViewModel {
             template: page.template,
             pageSize: thumbSize,
             thumbnailWidth: 160,
-            isDark: false
+            isDark: page.theme == "dark"
         )
         do {
             try repo.updateDrawing(pageId: page.id, drawing: data, thumbnail: thumb)

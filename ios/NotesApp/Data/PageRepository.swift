@@ -35,6 +35,7 @@ final class PageRepository {
                 notebookId: notebookId,
                 pageIndex: nextIndex,
                 template: template,
+                theme: "light",
                 drawingBlob: nil,
                 thumbnailBlob: nil,
                 createdAt: now,
@@ -53,6 +54,15 @@ final class PageRepository {
                  WHERE id = ?
                 """,
                 arguments: [drawing, thumbnail, Date(), pageId]
+            )
+        }
+    }
+
+    func updateTheme(pageId: String, theme: String) throws {
+        try writer.write { db in
+            try db.execute(
+                sql: "UPDATE pages SET theme = ?, updated_at = ? WHERE id = ?",
+                arguments: [theme, Date(), pageId]
             )
         }
     }
