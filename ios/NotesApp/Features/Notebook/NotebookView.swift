@@ -228,6 +228,14 @@ struct NotebookView: View {
                    disabled: !(canvasUndoManager?.canRedo ?? false)) {
                 canvasUndoManager?.redo()
             }
+            if let vm = viewModel {
+                tb2Btn(
+                    icon: vm.currentPageIsDark ? "sun.min" : "moon",
+                    isActive: vm.currentPageIsDark
+                ) {
+                    vm.toggleCurrentPageTheme()
+                }
+            }
 
             tb2Sep
 
@@ -633,7 +641,7 @@ struct NotebookView: View {
                 allowsFingerDrawing: false,
                 template: page.template,
                 pageSize: pageSize,
-                isDark: false,
+                isDark: vm.currentPageIsDark,
                 aiSelectionMode: $aiSelectionMode,
                 onAIRegionSelected: { rect in
                     lassoSelectionBounds = rect

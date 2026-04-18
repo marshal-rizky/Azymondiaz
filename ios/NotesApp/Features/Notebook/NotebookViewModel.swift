@@ -25,6 +25,10 @@ final class NotebookViewModel {
         return pages[currentPageIndex]
     }
 
+    var currentPageIsDark: Bool {
+        currentPage?.theme == "dark"
+    }
+
     func load() {
         do {
             pages = try repo.fetchAll(notebookId: notebook.id)
@@ -74,6 +78,18 @@ final class NotebookViewModel {
         }
     }
 
+    func toggleCurrentPageTheme() {
+        guard let page = currentPage,
+              let idx = pages.firstIndex(where: { $0.id == page.id }) else { return }
+        let newTheme = page.theme == "light" ? "dark" : "light"
+        do {
+            try repo.updateTheme(pageId: page.id, theme: newTheme)
+            pages[idx].theme = newTheme
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Force-write the current drawing immediately. Call on background / dismiss.
     func flushSave() {
         saveWorkItem?.cancel()
@@ -115,7 +131,7 @@ final class NotebookViewModel {
             template: page.template,
             pageSize: thumbSize,
             thumbnailWidth: 160,
-            isDark: false
+            isDark: page.theme == "dark"
         )
         do {
             try repo.updateDrawing(pageId: page.id, drawing: data, thumbnail: thumb)
