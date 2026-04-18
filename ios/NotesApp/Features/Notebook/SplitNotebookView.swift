@@ -43,6 +43,7 @@ struct SplitNotebookView: View {
             }
         }
         .onAppear {
+            guard splitState.leftSessionID == nil else { return }
             let session = sessions.open(initialNotebook)
             splitState.leftSessionID = session.id
         }
@@ -139,13 +140,10 @@ struct SplitNotebookView: View {
         .gesture(
             DragGesture()
                 .onChanged { value in
-                    let startFraction = isLandscape
-                        ? value.startLocation.x / totalSize
-                        : value.startLocation.y / totalSize
-                    let delta = isLandscape
-                        ? value.translation.width / totalSize
-                        : value.translation.height / totalSize
-                    splitState.splitRatio = min(0.7, max(0.3, startFraction + delta))
+                    let newFraction = isLandscape
+                        ? value.location.x / totalSize
+                        : value.location.y / totalSize
+                    splitState.splitRatio = min(0.7, max(0.3, newFraction))
                 }
         )
         .frame(
@@ -179,7 +177,6 @@ struct SplitNotebookView: View {
 
 private struct NotebookPickerSheet: View {
     @Environment(AppContainer.self) private var container
-    @Environment(\.dismiss) private var dismiss
     var onSelect: (Notebook) -> Void
     @State private var notebooks: [Notebook] = []
 
@@ -188,7 +185,6 @@ private struct NotebookPickerSheet: View {
             List(notebooks) { nb in
                 Button(nb.title) {
                     onSelect(nb)
-                    dismiss()
                 }
                 .foregroundStyle(AppColors.textPrimary)
             }
