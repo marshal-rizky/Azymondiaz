@@ -249,6 +249,7 @@ struct NotebookView: View {
                     Button("Line")  { vm.addPage(template: .line) }
                     Button("Grid")  { vm.addPage(template: .grid) }
                     Button("Blank") { vm.addPage(template: .blank) }
+                    Button("Cornell") { vm.addPage(template: .cornell) }
                 } label: {
                     Image(systemName: "rectangle.stack.badge.plus")
                         .font(.system(size: 13))
