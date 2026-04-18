@@ -53,8 +53,8 @@ struct NotebookTabBar: View {
             : Color(hex: "#0D1117")!
         )
         .clipShape(UnevenRoundedRectangle(
-            topLeadingRadius: 6, topTrailingRadius: 6,
-            bottomLeadingRadius: 0, bottomTrailingRadius: 0
+            topLeadingRadius: 6, bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0, topTrailingRadius: 6
         ))
         .onTapGesture { activeSessionID = session.id }
         .animation(.easeInOut(duration: 0.15), value: activeSessionID)
