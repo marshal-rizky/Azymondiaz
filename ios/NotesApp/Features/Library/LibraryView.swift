@@ -20,6 +20,7 @@ struct LibraryView: View {
     @State private var selectedCoverIndex = 0
     @State private var creatingFolder = false
     @State private var sidebarSelection: SidebarItem? = .documents
+    @State private var openedNotebook: Notebook? = nil
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: AppSpacing.grid)]
 
@@ -31,6 +32,9 @@ struct LibraryView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showingCreationSheet) { creationSheet }
+        .fullScreenCover(item: $openedNotebook) { nb in
+            SplitNotebookView(initialNotebook: nb)
+        }
         .onAppear {
             if viewModel == nil {
                 viewModel = LibraryViewModel(
@@ -268,9 +272,10 @@ struct LibraryView: View {
     private func notebookGrid(vm: LibraryViewModel) -> some View {
         LazyVGrid(columns: columns, spacing: AppSpacing.grid) {
             ForEach(vm.notebooks) { notebook in
-                NavigationLink(value: notebook) {
+                Button { openedNotebook = notebook } label: {
                     NotebookCoverTile(notebook: notebook)
                 }
+                .buttonStyle(.plain)
                 .contextMenu {
                     Button("Delete", role: .destructive) { vm.delete(notebook) }
                 }
@@ -282,9 +287,6 @@ struct LibraryView: View {
         }
         .padding(.horizontal, AppSpacing.page)
         .padding(.bottom, 24)
-        .navigationDestination(for: Notebook.self) { notebook in
-            SplitNotebookView(initialNotebook: notebook)
-        }
     }
 
     private var newTile: some View {

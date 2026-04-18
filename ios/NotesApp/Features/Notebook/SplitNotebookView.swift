@@ -29,12 +29,16 @@ struct SplitNotebookView: View {
                let leftSession = sessions.session(id: leftID),
                let rightSession = sessions.session(id: rightID) {
                 splitLayout(geo: geo, leftSession: leftSession, rightSession: rightSession)
-            } else if let leftID = splitState.leftSessionID,
-                      let leftSession = sessions.session(id: leftID) {
+            } else if let activeID = sessions.activeSessionID,
+                      let activeSession = sessions.session(id: activeID) {
+                // Single-pane: always show the currently active tab.
                 NotebookView(
-                    notebook: leftSession.notebook,
-                    sessionID: leftID,
-                    onSplit: { showingRightTabSheet = true },
+                    notebook: activeSession.notebook,
+                    sessionID: activeID,
+                    onSplit: {
+                        splitState.leftSessionID = activeID
+                        showingRightTabSheet = true
+                    },
                     onAdd: { showingAddTabSheet = true }
                 )
             } else {
@@ -48,8 +52,14 @@ struct SplitNotebookView: View {
             splitState.leftSessionID = session.id
         }
         .onDisappear {
-            if let id = splitState.leftSessionID  { sessions.close(sessionID: id) }
-            if let id = splitState.rightSessionID { sessions.close(sessionID: id) }
+            // Close every open tab when leaving notebook mode.
+            let ids = sessions.sessions.map(\.id)
+            ids.forEach { sessions.close(sessionID: $0) }
+        }
+        .onChange(of: sessions.activeSessionID) { _, newID in
+            // When all tabs are closed (X on last tab), dismiss back to library.
+            guard !splitState.isSplit else { return }
+            if newID == nil { dismiss() }
         }
         .sheet(isPresented: $showingRightTabSheet) {
             NotebookPickerSheet { selectedNotebook in

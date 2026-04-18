@@ -320,6 +320,19 @@ struct CanvasView: UIViewRepresentable {
 
             bgView?.frame = CGRect(origin: .zero, size: newSize)
 
+            // Reposition media image views to stay at their fractional positions
+            // within the scaled content area (newSize = pageSize × zoomScale).
+            for (id, iv) in mediaImageViews {
+                if let item = parent.mediaItems.first(where: { $0.id == id }) {
+                    iv.frame = CGRect(
+                        x: CGFloat(item.x) * newSize.width,
+                        y: CGFloat(item.y) * newSize.height,
+                        width: CGFloat(item.width) * newSize.width,
+                        height: CGFloat(item.height) * newSize.height
+                    )
+                }
+            }
+
             rerenderTimer?.invalidate()
             rerenderTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self, weak canvas] _ in
                 guard let self, let canvas else { return }
@@ -370,12 +383,15 @@ struct CanvasView: UIViewRepresentable {
             }
 
             // Add views for new items; update frames for existing
+            // Use current contentSize (pageSize × zoomScale) so frames stay
+            // anchored to the correct fractional position at any zoom level.
+            let contentSize = canvas.contentSize.width > 1 ? canvas.contentSize : pageSize
             for item in mediaItems {
                 let frame = CGRect(
-                    x: CGFloat(item.x) * pageSize.width,
-                    y: CGFloat(item.y) * pageSize.height,
-                    width: CGFloat(item.width) * pageSize.width,
-                    height: CGFloat(item.height) * pageSize.height
+                    x: CGFloat(item.x) * contentSize.width,
+                    y: CGFloat(item.y) * contentSize.height,
+                    width: CGFloat(item.width) * contentSize.width,
+                    height: CGFloat(item.height) * contentSize.height
                 )
                 if let existing = mediaImageViews[item.id] {
                     existing.frame = frame
@@ -427,18 +443,30 @@ struct CanvasView: UIViewRepresentable {
 
         @objc func handleMediaPinch(_ sender: UIPinchGestureRecognizer) {
             guard let id = gestureMediaID[sender],
-                  let iv = mediaImageViews[id] else { return }
-            iv.transform = iv.transform.scaledBy(x: sender.scale, y: sender.scale)
-            sender.scale = 1.0
+                  let iv = mediaImageViews[id],
+                  let canvas = observedCanvas else { return }
 
-            if sender.state == .ended {
-                // Flatten transform into frame
+            switch sender.state {
+            case .began:
+                // Prevent PKCanvasView from zooming while the user resizes an image.
+                canvas.maximumZoomScale = canvas.zoomScale
+            case .changed:
+                iv.transform = iv.transform.scaledBy(x: sender.scale, y: sender.scale)
+                sender.scale = 1.0
+            case .ended:
+                canvas.maximumZoomScale = 5.0
+                // Flatten transform into frame then persist.
                 let newFrame = iv.frame
                 iv.transform = .identity
                 iv.frame = newFrame
                 if let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize) {
                     parent.onMediaUpdated?(newItem)
                 }
+            case .cancelled, .failed:
+                canvas.maximumZoomScale = 5.0
+                iv.transform = .identity
+            default:
+                break
             }
         }
 
@@ -449,10 +477,15 @@ struct CanvasView: UIViewRepresentable {
 
         private func updatedMediaItem(id: String, from iv: UIImageView, pageSize: CGSize) -> PageMediaItem? {
             guard var item = parent.mediaItems.first(where: { $0.id == id }) else { return nil }
-            item.x = Double(iv.frame.minX / pageSize.width)
-            item.y = Double(iv.frame.minY / pageSize.height)
-            item.width = Double(iv.frame.width / pageSize.width)
-            item.height = Double(iv.frame.height / pageSize.height)
+            // Normalize by contentSize (= pageSize × zoomScale) so the stored
+            // fractional position remains zoom-invariant.
+            let cs = observedCanvas?.contentSize ?? pageSize
+            let w = cs.width  > 1 ? cs.width  : pageSize.width
+            let h = cs.height > 1 ? cs.height : pageSize.height
+            item.x = Double(iv.frame.minX / w)
+            item.y = Double(iv.frame.minY / h)
+            item.width = Double(iv.frame.width / w)
+            item.height = Double(iv.frame.height / h)
             return item
         }
     }

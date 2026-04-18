@@ -153,15 +153,24 @@ struct ImportButton: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(isPresented: $showingPDFPicker) {
-            PDFDocumentPicker { doc in
-                showingPDFPicker = false
-                showingProgress = true
-                let forExisting = isForExistingNotebook
-                Task { @MainActor in
-                    await importPDF(doc: doc, forExistingNotebook: forExisting)
-                    showingProgress = false
-                }
+        .fileImporter(
+            isPresented: $showingPDFPicker,
+            allowedContentTypes: [.pdf],
+            allowsMultipleSelection: false
+        ) { result in
+            guard let url = (try? result.get())?.first,
+                  url.startAccessingSecurityScopedResource() else { return }
+            defer { url.stopAccessingSecurityScopedResource() }
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent(url.lastPathComponent)
+            try? FileManager.default.removeItem(at: tmp)
+            guard (try? FileManager.default.copyItem(at: url, to: tmp)) != nil,
+                  let doc = PDFDocument(url: tmp) else { return }
+            showingProgress = true
+            let forExisting = isForExistingNotebook
+            Task { @MainActor in
+                await importPDF(doc: doc, forExistingNotebook: forExisting)
+                showingProgress = false
             }
         }
         .sheet(isPresented: $showingPhotoPicker) {
