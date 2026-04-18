@@ -14,6 +14,8 @@ struct NotebookView: View {
     var sessionID: UUID? = nil
     /// Called when the user taps SPLIT. Nil = split already active (hide the button).
     var onSplit: (() -> Void)? = nil
+    /// Called when user taps the + add-tab button. Provided by SplitNotebookView.
+    var onAdd: (() -> Void)? = nil
     /// Set to false in split-screen panes — the parent SplitNotebookView owns the tab bar.
     var showTabBar: Bool = true
     @State private var viewModel: NotebookViewModel?
@@ -333,8 +335,9 @@ struct NotebookView: View {
                 set: { container.sessions.activeSessionID = $0 }
             ),
             onClose: { id in container.sessions.close(sessionID: id) },
-            onAdd: { /* handled by SplitNotebookView in Task 7 */ },
-            onSplit: onSplit
+            onAdd: { onAdd?() },
+            onSplit: onSplit,
+            canAdd: onAdd != nil
         )
     }
 

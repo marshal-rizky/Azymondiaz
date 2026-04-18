@@ -279,7 +279,7 @@ struct LibraryView: View {
         .padding(.horizontal, AppSpacing.page)
         .padding(.bottom, 24)
         .navigationDestination(for: Notebook.self) { notebook in
-            NotebookView(notebook: notebook)
+            SplitNotebookView(initialNotebook: notebook)
         }
     }
 
