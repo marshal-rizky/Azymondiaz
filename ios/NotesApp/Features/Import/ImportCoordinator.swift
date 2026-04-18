@@ -127,6 +127,13 @@ struct ImportButton: View {
     @State private var showingPhotoPicker = false
     @State private var showingProgress = false
     @State private var isForExistingNotebook = false
+    // On iPad, confirmationDialog is a UIPopoverPresentationController. Presenting
+    // a second sheet before its dismissal animation completes causes UIKit to drop
+    // the presentation silently. Store intent here; onChange fires after SwiftUI
+    // commits the state change, then asyncAfter waits for the UIKit animation.
+    @State private var pendingPicker: PendingPicker = .none
+
+    private enum PendingPicker { case none, pdf, photo }
 
     var body: some View {
         Button {
@@ -140,18 +147,33 @@ struct ImportButton: View {
         .confirmationDialog("Import", isPresented: $showingActionSheet) {
             Button("PDF → New Notebook") {
                 isForExistingNotebook = false
-                showingPDFPicker = true
+                pendingPicker = .pdf
             }
             if case .notebook = mode {
                 Button("PDF → Add pages here") {
                     isForExistingNotebook = true
-                    showingPDFPicker = true
+                    pendingPicker = .pdf
                 }
                 Button("Insert Image on this page") {
-                    showingPhotoPicker = true
+                    pendingPicker = .photo
                 }
             }
             Button("Cancel", role: .cancel) {}
+        }
+        // Wait for the confirmation dialog's dismissal animation to finish before
+        // presenting the file/photo picker. 0.35 s covers iPad popover animation.
+        .onChange(of: showingActionSheet) { _, isShowing in
+            guard !isShowing else { return }
+            let pending = pendingPicker
+            pendingPicker = .none
+            guard pending != .none else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                switch pending {
+                case .pdf:   showingPDFPicker   = true
+                case .photo: showingPhotoPicker = true
+                case .none:  break
+                }
+            }
         }
         .fileImporter(
             isPresented: $showingPDFPicker,

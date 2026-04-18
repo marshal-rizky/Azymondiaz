@@ -401,6 +401,10 @@ struct CanvasView: UIViewRepresentable {
                     iv.frame = frame
                     iv.contentMode = .scaleAspectFit
                     iv.isUserInteractionEnabled = true
+                    // Required for UIPinchGestureRecognizer — default is false,
+                    // which means the second finger never reaches this view and
+                    // the pinch never accumulates 2 touches → never recognizes.
+                    iv.isMultipleTouchEnabled = true
                     iv.layer.zPosition = 1  // above template (z=0), below PK strokes
 
                     // Pan to move

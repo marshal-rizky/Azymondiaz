@@ -32,6 +32,8 @@ struct SplitNotebookView: View {
             } else if let activeID = sessions.activeSessionID,
                       let activeSession = sessions.session(id: activeID) {
                 // Single-pane: always show the currently active tab.
+                // .id(activeID) forces full recreation (clears @State viewModel)
+                // when the user switches to a different tab.
                 NotebookView(
                     notebook: activeSession.notebook,
                     sessionID: activeID,
@@ -41,6 +43,7 @@ struct SplitNotebookView: View {
                     },
                     onAdd: { showingAddTabSheet = true }
                 )
+                .id(activeID)
             } else {
                 ProgressView().tint(AppColors.gold)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
