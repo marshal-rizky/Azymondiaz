@@ -6,6 +6,7 @@ struct NotebookTabBar: View {
     var onClose: (UUID) -> Void
     var onAdd: () -> Void
     var onSplit: (() -> Void)?      // nil when split is already active
+    var canAdd: Bool = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -63,10 +64,11 @@ struct NotebookTabBar: View {
         Button(action: onAdd) {
             Image(systemName: "plus")
                 .font(.system(size: 13))
-                .foregroundStyle(AppColors.gold)
+                .foregroundStyle(canAdd ? AppColors.gold : AppColors.textTertiary)
                 .frame(width: 34, height: 28)
         }
         .buttonStyle(.plain)
+        .disabled(!canAdd)
     }
 
     private func splitButton(action: @escaping () -> Void) -> some View {

@@ -14,6 +14,8 @@ struct NotebookView: View {
     var sessionID: UUID? = nil
     /// Called when the user taps SPLIT. Nil = split already active (hide the button).
     var onSplit: (() -> Void)? = nil
+    /// Set to false in split-screen panes — the parent SplitNotebookView owns the tab bar.
+    var showTabBar: Bool = true
     @State private var viewModel: NotebookViewModel?
     @State private var showingShareSheet = false
     @State private var pdfData: Data?
@@ -112,7 +114,7 @@ struct NotebookView: View {
 
     private var mainContent: some View {
         VStack(spacing: 0) {
-            tabBarRow
+            if showTabBar { tabBarRow }
             navBar
             toolbar2
             ZStack(alignment: .top) {
