@@ -47,6 +47,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: NotesApp/Resources/NotesApp.entitlements
     dependencies:
       - package: GRDB
+      - sdk: PhotosUI.framework
+      - sdk: PDFKit.framework
   NotesAppTests:
     type: bundle.unit-test
     platform: iOS

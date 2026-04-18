@@ -255,6 +255,13 @@ struct NotebookView: View {
 
             Spacer()
 
+            if let vm = viewModel, let page = vm.currentPage {
+                ImportButton(
+                    mode: .notebook(notebook, page.id),
+                    onMediaInserted: { vm.addMedia($0) }
+                )
+            }
+
             if container.aiRouter.activeLabel == "groq" {
                 routingBadge(text: "Groq fallback")
             } else if !container.aiRouter.isConfigured {

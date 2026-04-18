@@ -178,6 +178,10 @@ struct LibraryView: View {
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.chip))
                     .overlay(RoundedRectangle(cornerRadius: AppRadius.chip).stroke(AppColors.border, lineWidth: 0.5))
             }
+            ImportButton(
+                mode: .library,
+                onNewNotebookCreated: { _ in viewModel?.reload() }
+            )
             // + New pill
             Button { showingCreationSheet = true } label: {
                 HStack(spacing: 5) {
