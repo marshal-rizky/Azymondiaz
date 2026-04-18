@@ -8,28 +8,26 @@ import UniformTypeIdentifiers
 enum PDFImporter {
     static let pageSize = CGSize(width: 1024, height: 1366)
 
-    /// Renders each page of a PDF to PNG data.
-    static func renderPages(from doc: PDFDocument) -> [Data] {
-        (0..<doc.pageCount).compactMap { i -> Data? in
-            guard let page = doc.page(at: i) else { return nil }
-            let renderer = UIGraphicsImageRenderer(size: pageSize)
-            return renderer.pngData { ctx in
-                UIColor.white.setFill()
-                ctx.fill(CGRect(origin: .zero, size: pageSize))
-                let cg = ctx.cgContext
-                cg.saveGState()
-                cg.translateBy(x: 0, y: pageSize.height)
-                cg.scaleBy(x: 1, y: -1)
-                let mediaBounds = page.bounds(for: .mediaBox)
-                let scale = min(pageSize.width / mediaBounds.width,
-                                pageSize.height / mediaBounds.height)
-                cg.scaleBy(x: scale, y: scale)
-                let offsetX = (pageSize.width / scale - mediaBounds.width) / 2
-                let offsetY = (pageSize.height / scale - mediaBounds.height) / 2
-                cg.translateBy(x: offsetX, y: offsetY)
-                page.draw(with: .mediaBox, to: cg)
-                cg.restoreGState()
-            }
+    /// Renders a single PDF page to PNG data. Call one page at a time to avoid
+    /// holding all blobs in memory simultaneously for large documents.
+    static func renderPage(_ page: PDFPage) -> Data {
+        let renderer = UIGraphicsImageRenderer(size: pageSize)
+        return renderer.pngData { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: pageSize))
+            let cg = ctx.cgContext
+            cg.saveGState()
+            cg.translateBy(x: 0, y: pageSize.height)
+            cg.scaleBy(x: 1, y: -1)
+            let mediaBounds = page.bounds(for: .mediaBox)
+            let scale = min(pageSize.width / mediaBounds.width,
+                            pageSize.height / mediaBounds.height)
+            cg.scaleBy(x: scale, y: scale)
+            let offsetX = (pageSize.width / scale - mediaBounds.width) / 2
+            let offsetY = (pageSize.height / scale - mediaBounds.height) / 2
+            cg.translateBy(x: offsetX, y: offsetY)
+            page.draw(with: .mediaBox, to: cg)
+            cg.restoreGState()
         }
     }
 }
@@ -57,9 +55,16 @@ struct PDFDocumentPicker: UIViewControllerRepresentable {
         func documentPicker(_ controller: UIDocumentPickerViewController,
                             didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first,
-                  url.startAccessingSecurityScopedResource(),
-                  let doc = PDFDocument(url: url) else { return }
+                  url.startAccessingSecurityScopedResource() else { return }
             defer { url.stopAccessingSecurityScopedResource() }
+            // Copy to temp storage inside the security scope so that lazy PDF
+            // page reads (which happen on a background thread later) don't race
+            // against the scope being released when this delegate method returns.
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent(url.lastPathComponent)
+            try? FileManager.default.removeItem(at: tmp)
+            guard (try? FileManager.default.copyItem(at: url, to: tmp)) != nil,
+                  let doc = PDFDocument(url: tmp) else { return }
             parent.onPicked(doc)
         }
     }
@@ -90,7 +95,12 @@ struct PhotoItemPicker: UIViewControllerRepresentable {
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             picker.dismiss(animated: true)
             guard let result = results.first else { return }
-            result.itemProvider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+            // Use a concrete type from the provider's registered identifiers —
+            // the abstract "public.image" supertype fails silently on most pickers.
+            let typeId = result.itemProvider.registeredTypeIdentifiers
+                .first { UTType($0)?.conforms(to: .image) == true }
+                ?? UTType.jpeg.identifier
+            result.itemProvider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
                 guard let data else { return }
                 DispatchQueue.main.async { self.parent.onPicked(data) }
             }
@@ -147,9 +157,10 @@ struct ImportButton: View {
             PDFDocumentPicker { doc in
                 showingPDFPicker = false
                 showingProgress = true
-                Task.detached {
-                    await importPDF(doc: doc)
-                    await MainActor.run { showingProgress = false }
+                let forExisting = isForExistingNotebook
+                Task { @MainActor in
+                    await importPDF(doc: doc, forExistingNotebook: forExisting)
+                    showingProgress = false
                 }
             }
         }
@@ -179,14 +190,18 @@ struct ImportButton: View {
     // MARK: - Import logic
 
     @MainActor
-    private func importPDF(doc: PDFDocument) async {
-        let blobs = await Task.detached(priority: .userInitiated) {
-            PDFImporter.renderPages(from: doc)
-        }.value
+    private func importPDF(doc: PDFDocument, forExistingNotebook: Bool) async {
+        let pageCount = doc.pageCount
         let title = doc.documentURL?.deletingPathExtension().lastPathComponent ?? "Imported"
 
-        if isForExistingNotebook, case .notebook(let nb, _) = mode {
-            for blob in blobs {
+        if forExistingNotebook, case .notebook(let nb, _) = mode {
+            // Append pages one at a time — render + write + release to avoid
+            // holding all PNG blobs in memory simultaneously.
+            for i in 0..<pageCount {
+                guard let pdfPage = doc.page(at: i) else { continue }
+                let blob = await Task.detached(priority: .userInitiated) {
+                    PDFImporter.renderPage(pdfPage)
+                }.value
                 guard let page = try? container.pages.append(notebookId: nb.id, template: .blank) else { continue }
                 let item = PageMediaItem(
                     id: UUID().uuidString, pageId: page.id, sortIndex: 0,
@@ -197,7 +212,11 @@ struct ImportButton: View {
             }
         } else {
             guard let nb = try? container.notebooks.create(title: title, coverColor: "#4A90E2") else { return }
-            for blob in blobs {
+            for i in 0..<pageCount {
+                guard let pdfPage = doc.page(at: i) else { continue }
+                let blob = await Task.detached(priority: .userInitiated) {
+                    PDFImporter.renderPage(pdfPage)
+                }.value
                 guard let page = try? container.pages.append(notebookId: nb.id, template: .blank) else { continue }
                 let item = PageMediaItem(
                     id: UUID().uuidString, pageId: page.id, sortIndex: 0,
