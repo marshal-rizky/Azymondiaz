@@ -9,7 +9,7 @@ struct PageMediaItem: Identifiable, Codable, FetchableRecord, PersistableRecord 
     var x: Double        // fraction of page width (0–1)
     var y: Double        // fraction of page height (0–1)
     var width: Double    // fraction of page width (0–1)
-    var height: Double   // computed to preserve aspect ratio
+    var height: Double   // fraction of page height (0–1); set by caller to preserve aspect ratio
     var createdAt: Date
 
     static let databaseTableName = "page_media"

@@ -55,4 +55,12 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertEqual(remaining.map(\.id), [p0.id, p2.id])
         XCTAssertEqual(remaining.map(\.pageIndex), [0, 1])
     }
+
+    func test_updateTheme_persists_dark() throws {
+        let page = try pages.append(notebookId: notebookId, template: .blank)
+        XCTAssertEqual(page.theme, "light")   // default
+        try pages.updateTheme(pageId: page.id, theme: "dark")
+        let reloaded = try XCTUnwrap(pages.fetch(id: page.id))
+        XCTAssertEqual(reloaded.theme, "dark")
+    }
 }
