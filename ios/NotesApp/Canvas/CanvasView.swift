@@ -358,9 +358,14 @@ struct CanvasView: UIViewRepresentable {
             let currentIDs = Set(mediaItems.map(\.id))
             let existingIDs = Set(mediaImageViews.keys)
 
-            // Remove views for deleted items
+            // Remove views for deleted items, cleaning up gesture recognizer entries
             for id in existingIDs.subtracting(currentIDs) {
-                mediaImageViews[id]?.removeFromSuperview()
+                if let iv = mediaImageViews[id] {
+                    for gr in iv.gestureRecognizers ?? [] {
+                        gestureMediaID.removeValue(forKey: gr)
+                    }
+                    iv.removeFromSuperview()
+                }
                 mediaImageViews.removeValue(forKey: id)
             }
 
@@ -414,8 +419,9 @@ struct CanvasView: UIViewRepresentable {
             sender.setTranslation(.zero, in: canvas)
 
             if sender.state == .ended {
-                let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize)
-                parent.onMediaUpdated?(newItem)
+                if let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize) {
+                    parent.onMediaUpdated?(newItem)
+                }
             }
         }
 
@@ -430,8 +436,9 @@ struct CanvasView: UIViewRepresentable {
                 let newFrame = iv.frame
                 iv.transform = .identity
                 iv.frame = newFrame
-                let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize)
-                parent.onMediaUpdated?(newItem)
+                if let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize) {
+                    parent.onMediaUpdated?(newItem)
+                }
             }
         }
 
@@ -440,8 +447,8 @@ struct CanvasView: UIViewRepresentable {
             parent.onMediaDeleted?(id)
         }
 
-        private func updatedMediaItem(id: String, from iv: UIImageView, pageSize: CGSize) -> PageMediaItem {
-            var item = parent.mediaItems.first { $0.id == id }!
+        private func updatedMediaItem(id: String, from iv: UIImageView, pageSize: CGSize) -> PageMediaItem? {
+            guard var item = parent.mediaItems.first(where: { $0.id == id }) else { return nil }
             item.x = Double(iv.frame.minX / pageSize.width)
             item.y = Double(iv.frame.minY / pageSize.height)
             item.width = Double(iv.frame.width / pageSize.width)
