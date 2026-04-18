@@ -13,11 +13,14 @@ final class NotebookViewModel {
     var errorMessage: String?
 
     private let repo: PageRepository
+    private(set) var currentMediaItems: [PageMediaItem] = []
+    private let mediaRepo: PageMediaRepository
     private var saveWorkItem: DispatchWorkItem?
 
-    init(notebook: Notebook, repo: PageRepository) {
+    init(notebook: Notebook, repo: PageRepository, mediaRepo: PageMediaRepository) {
         self.notebook = notebook
         self.repo = repo
+        self.mediaRepo = mediaRepo
     }
 
     var currentPage: Page? {
@@ -93,6 +96,23 @@ final class NotebookViewModel {
         }
     }
 
+    func updateMedia(_ item: PageMediaItem) {
+        try? mediaRepo.update(item)
+        if let idx = currentMediaItems.firstIndex(where: { $0.id == item.id }) {
+            currentMediaItems[idx] = item
+        }
+    }
+
+    func deleteMedia(id: String) {
+        try? mediaRepo.delete(id: id)
+        currentMediaItems.removeAll { $0.id == id }
+    }
+
+    func addMedia(_ item: PageMediaItem) {
+        try? mediaRepo.insert(item)
+        currentMediaItems.append(item)
+    }
+
     /// Force-write the current drawing immediately. Call on background / dismiss.
     func flushSave() {
         saveWorkItem?.cancel()
@@ -105,12 +125,18 @@ final class NotebookViewModel {
     private func loadDrawingForCurrentPage() {
         guard let page = currentPage else {
             currentDrawing = PKDrawing()
+            currentMediaItems = []
             return
         }
         if let blob = page.drawingBlob, let restored = try? PKDrawing(data: blob) {
             currentDrawing = restored
         } else {
             currentDrawing = PKDrawing()
+        }
+        if let page = currentPage {
+            currentMediaItems = (try? mediaRepo.fetchAll(pageId: page.id)) ?? []
+        } else {
+            currentMediaItems = []
         }
     }
 

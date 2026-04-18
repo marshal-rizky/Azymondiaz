@@ -38,6 +38,12 @@ struct CanvasView: UIViewRepresentable {
     var activeTool: PKTool = PKInkingTool(.pen, color: .black, width: 2)
     /// Bound to the PKCanvasView's undoManager so the parent can call undo/redo.
     @Binding var undoManager: UndoManager?
+    /// Floating image objects to overlay on the canvas.
+    var mediaItems: [PageMediaItem] = []
+    /// Called when the user moves/resizes an image. Caller saves to DB.
+    var onMediaUpdated: ((PageMediaItem) -> Void)? = nil
+    /// Called when the user double-taps an image to delete it.
+    var onMediaDeleted: ((String) -> Void)? = nil
 
     private static let bgTag = 100
 
@@ -125,6 +131,13 @@ struct CanvasView: UIViewRepresentable {
 
         // Keep coordinator's parent current so KVO callbacks use latest values.
         coord.parent = self
+
+        context.coordinator.syncMediaImageViews(
+            in: canvas,
+            mediaItems: mediaItems,
+            pageSize: pageSize,
+            parent: self
+        )
     }
 
     static func dismantleUIView(_ uiView: PKCanvasView, coordinator: Coordinator) {
@@ -142,6 +155,10 @@ struct CanvasView: UIViewRepresentable {
         weak var bgView: UIImageView?
         weak var observedCanvas: PKCanvasView?
         var rerenderTimer: Timer?
+        // Map from PageMediaItem.id → UIImageView for gesture handling
+        var mediaImageViews: [String: UIImageView] = [:]
+        // Track which media item each gesture is acting on
+        var gestureMediaID: [UIGestureRecognizer: String] = [:]
         private var isScratchErasing = false
         private let scratchFeedback = UIImpactFeedbackGenerator(style: .light)
 
@@ -328,6 +345,108 @@ struct CanvasView: UIViewRepresentable {
             canvas.contentInset = UIEdgeInsets(
                 top: insetY, left: insetX, bottom: insetY, right: insetX
             )
+        }
+
+        // MARK: - Media image views
+
+        func syncMediaImageViews(
+            in canvas: PKCanvasView,
+            mediaItems: [PageMediaItem],
+            pageSize: CGSize,
+            parent: CanvasView
+        ) {
+            let currentIDs = Set(mediaItems.map(\.id))
+            let existingIDs = Set(mediaImageViews.keys)
+
+            // Remove views for deleted items
+            for id in existingIDs.subtracting(currentIDs) {
+                mediaImageViews[id]?.removeFromSuperview()
+                mediaImageViews.removeValue(forKey: id)
+            }
+
+            // Add views for new items; update frames for existing
+            for item in mediaItems {
+                let frame = CGRect(
+                    x: CGFloat(item.x) * pageSize.width,
+                    y: CGFloat(item.y) * pageSize.height,
+                    width: CGFloat(item.width) * pageSize.width,
+                    height: CGFloat(item.height) * pageSize.height
+                )
+                if let existing = mediaImageViews[item.id] {
+                    existing.frame = frame
+                } else {
+                    guard let image = UIImage(data: item.imageBlob) else { continue }
+                    let iv = UIImageView(image: image)
+                    iv.frame = frame
+                    iv.contentMode = .scaleAspectFit
+                    iv.isUserInteractionEnabled = true
+                    iv.layer.zPosition = 1  // above template (z=0), below PK strokes
+
+                    // Pan to move
+                    let pan = UIPanGestureRecognizer(target: self, action: #selector(handleMediaPan(_:)))
+                    iv.addGestureRecognizer(pan)
+                    gestureMediaID[pan] = item.id
+
+                    // Pinch to resize
+                    let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handleMediaPinch(_:)))
+                    iv.addGestureRecognizer(pinch)
+                    gestureMediaID[pinch] = item.id
+
+                    // Double-tap to delete
+                    let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleMediaDoubleTap(_:)))
+                    doubleTap.numberOfTapsRequired = 2
+                    iv.addGestureRecognizer(doubleTap)
+                    gestureMediaID[doubleTap] = item.id
+
+                    canvas.insertSubview(iv, at: 1)  // after bgView (index 0)
+                    mediaImageViews[item.id] = iv
+                }
+            }
+        }
+
+        @objc func handleMediaPan(_ sender: UIPanGestureRecognizer) {
+            guard let id = gestureMediaID[sender],
+                  let iv = mediaImageViews[id],
+                  let canvas = observedCanvas else { return }
+            let translation = sender.translation(in: canvas)
+            iv.center = CGPoint(x: iv.center.x + translation.x,
+                                y: iv.center.y + translation.y)
+            sender.setTranslation(.zero, in: canvas)
+
+            if sender.state == .ended {
+                let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize)
+                parent.onMediaUpdated?(newItem)
+            }
+        }
+
+        @objc func handleMediaPinch(_ sender: UIPinchGestureRecognizer) {
+            guard let id = gestureMediaID[sender],
+                  let iv = mediaImageViews[id] else { return }
+            iv.transform = iv.transform.scaledBy(x: sender.scale, y: sender.scale)
+            sender.scale = 1.0
+
+            if sender.state == .ended {
+                // Flatten transform into frame
+                let newFrame = iv.frame
+                iv.transform = .identity
+                iv.frame = newFrame
+                let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize)
+                parent.onMediaUpdated?(newItem)
+            }
+        }
+
+        @objc func handleMediaDoubleTap(_ sender: UITapGestureRecognizer) {
+            guard let id = gestureMediaID[sender] else { return }
+            parent.onMediaDeleted?(id)
+        }
+
+        private func updatedMediaItem(id: String, from iv: UIImageView, pageSize: CGSize) -> PageMediaItem {
+            var item = parent.mediaItems.first { $0.id == id }!
+            item.x = Double(iv.frame.minX / pageSize.width)
+            item.y = Double(iv.frame.minY / pageSize.height)
+            item.width = Double(iv.frame.width / pageSize.width)
+            item.height = Double(iv.frame.height / pageSize.height)
+            return item
         }
     }
 }

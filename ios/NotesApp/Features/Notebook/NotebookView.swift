@@ -54,7 +54,9 @@ struct NotebookView: View {
         .navigationBarHidden(true)
         .onAppear {
             if viewModel == nil {
-                let vm = NotebookViewModel(notebook: notebook, repo: container.pages)
+                let vm = NotebookViewModel(notebook: notebook,
+                                           repo: container.pages,
+                                           mediaRepo: container.pageMedia)
                 vm.load()
                 viewModel = vm
             }
@@ -674,7 +676,10 @@ struct NotebookView: View {
                     showingLassoMenu = true
                 },
                 activeTool: currentPKTool,
-                undoManager: $canvasUndoManager
+                undoManager: $canvasUndoManager,
+                mediaItems: vm.currentMediaItems,
+                onMediaUpdated: { vm.updateMedia($0) },
+                onMediaDeleted: { vm.deleteMedia(id: $0) }
             )
             .background(AppColors.canvasPaper)
         } else {
