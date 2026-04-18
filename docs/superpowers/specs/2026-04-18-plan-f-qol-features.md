@@ -144,6 +144,10 @@ Wraps two `NotebookView` instances. Replaces the direct `NotebookView` navigatio
 - Focused pane receives tool pill input; unfocused pane's canvas is not first responder
 - Subtle dim overlay (opacity 0.04 black) on unfocused pane
 
+**Single vs split rendering:**
+- When `SplitState.isSplit = false`, `SplitNotebookView` renders a single `NotebookView` (no wrapper overhead, no divider)
+- When `isSplit = true`, renders the two-pane `HStack`/`VStack` layout
+
 **Controls:**
 - Tab bar far right: **⊞ SPLIT** button (only in single-pane mode) — opens sheet to pick second notebook
 - Right pane tab bar: **✕ UNSPLIT** button — sets `isSplit = false`, right pane dismissed
