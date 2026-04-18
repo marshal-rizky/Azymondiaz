@@ -10,6 +10,10 @@ struct NotebookView: View {
     @Environment(\.dismiss) private var dismiss
 
     let notebook: Notebook
+    /// The session ID this pane is associated with. Passed by SplitNotebookView.
+    var sessionID: UUID? = nil
+    /// Called when the user taps SPLIT. Nil = split already active (hide the button).
+    var onSplit: (() -> Void)? = nil
     @State private var viewModel: NotebookViewModel?
     @State private var showingShareSheet = false
     @State private var pdfData: Data?
@@ -108,6 +112,7 @@ struct NotebookView: View {
 
     private var mainContent: some View {
         VStack(spacing: 0) {
+            tabBarRow
             navBar
             toolbar2
             ZStack(alignment: .top) {
@@ -313,6 +318,22 @@ struct NotebookView: View {
             .background(AppColors.gold.opacity(0.1))
             .clipShape(Capsule())
             .overlay(Capsule().stroke(AppColors.gold.opacity(0.2), lineWidth: 0.5))
+    }
+
+    // MARK: - Tab bar row
+
+    @ViewBuilder
+    private var tabBarRow: some View {
+        NotebookTabBar(
+            sessions: container.sessions.sessions,
+            activeSessionID: Binding(
+                get: { sessionID ?? container.sessions.activeSessionID },
+                set: { container.sessions.activeSessionID = $0 }
+            ),
+            onClose: { id in container.sessions.close(sessionID: id) },
+            onAdd: { /* handled by SplitNotebookView in Task 7 */ },
+            onSplit: onSplit
+        )
     }
 
     // MARK: - Floating tool pill
