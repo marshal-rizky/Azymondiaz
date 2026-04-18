@@ -5,7 +5,7 @@ import PencilKit
 final class ChatContextBuilderTests: XCTestCase {
     func test_page_scope_uses_current_page_drawing() {
         let page = Page(id: "p1", notebookId: "nb", pageIndex: 0, template: .line,
-                        drawingBlob: PKDrawing().dataRepresentation(),
+                        theme: "light", drawingBlob: PKDrawing().dataRepresentation(),
                         thumbnailBlob: nil, createdAt: Date(), updatedAt: Date())
         let b64 = ChatContextBuilder.makeContextImageBase64(
             scope: .page,
@@ -20,7 +20,7 @@ final class ChatContextBuilderTests: XCTestCase {
         let blank = PKDrawing().dataRepresentation()
         let pages: [Page] = (0..<3).map { i in
             Page(id: "p\(i)", notebookId: "nb", pageIndex: i, template: .blank,
-                 drawingBlob: blank, thumbnailBlob: nil,
+                 theme: "light", drawingBlob: blank, thumbnailBlob: nil,
                  createdAt: Date(), updatedAt: Date())
         }
         let single = ChatContextBuilder.makeContextImageBase64(
