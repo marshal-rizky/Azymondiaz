@@ -81,10 +81,13 @@ final class NotebookViewModel {
     func toggleCurrentPageTheme() {
         guard let page = currentPage,
               let idx = pages.firstIndex(where: { $0.id == page.id }) else { return }
-        let newTheme = page.theme == "light" ? "dark" : "light"
+        let newTheme = page.theme == "dark" ? "light" : "dark"
         do {
             try repo.updateTheme(pageId: page.id, theme: newTheme)
             pages[idx].theme = newTheme
+            // Note: mutate pages[idx] synchronously on main thread before any
+            // in-flight saveWorkItem fires — persistCurrentDrawing() reads the
+            // updated theme from pages[currentPageIndex], so ordering is correct.
         } catch {
             errorMessage = error.localizedDescription
         }
