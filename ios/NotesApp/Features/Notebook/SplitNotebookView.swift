@@ -177,6 +177,7 @@ struct SplitNotebookView: View {
 
 private struct NotebookPickerSheet: View {
     @Environment(AppContainer.self) private var container
+    @Environment(\.dismiss) private var dismiss
     var onSelect: (Notebook) -> Void
     @State private var notebooks: [Notebook] = []
 
