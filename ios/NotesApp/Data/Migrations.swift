@@ -63,6 +63,29 @@ enum Migrations {
             }
         }
 
+        migrator.registerMigration("v3_page_media_and_theme") { db in
+            // Add per-page theme column (default 'light' for existing pages)
+            try db.alter(table: "pages") { t in
+                t.add(column: "theme", .text).notNull().defaults(to: "light")
+            }
+
+            // New table for floating image objects on canvas pages
+            try db.create(table: "page_media") { t in
+                t.column("id", .text).primaryKey()
+                t.column("page_id", .text)
+                    .notNull()
+                    .references("pages", onDelete: .cascade)
+                t.column("sort_index", .integer).notNull().defaults(to: 0)
+                t.column("image_blob", .blob).notNull()
+                t.column("x", .double).notNull().defaults(to: 0.3)
+                t.column("y", .double).notNull().defaults(to: 0.3)
+                t.column("width", .double).notNull().defaults(to: 0.4)
+                t.column("height", .double).notNull().defaults(to: 0.4)
+                t.column("created_at", .datetime).notNull()
+            }
+            try db.create(index: "idx_page_media_page", on: "page_media", columns: ["page_id"])
+        }
+
         try migrator.migrate(writer)
     }
 }
