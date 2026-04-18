@@ -13,11 +13,12 @@ final class ScratchOutDetectorTests: XCTestCase {
     }
 
     func test_back_and_forth_is_scribble() {
-        // Three passes: right, left, right — 2 reversals ≥ threshold
+        // Four passes: right, left, right, left — 3 reversals ≥ threshold
         var points: [CGPoint] = []
         for x in stride(from: CGFloat(0), to: 120, by: 10) { points.append(CGPoint(x: x, y: 50)) }
         for x in stride(from: CGFloat(120), to: 0, by: -10) { points.append(CGPoint(x: x, y: 55)) }
         for x in stride(from: CGFloat(0), to: 120, by: 10) { points.append(CGPoint(x: x, y: 52)) }
+        for x in stride(from: CGFloat(120), to: 0, by: -10) { points.append(CGPoint(x: x, y: 53)) }
         XCTAssertTrue(ScratchOutDetector.isScribble(points: points, duration: 0.8))
     }
 

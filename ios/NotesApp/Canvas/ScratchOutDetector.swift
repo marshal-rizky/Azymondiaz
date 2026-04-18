@@ -3,7 +3,7 @@ import PencilKit
 
 enum ScratchOutDetector {
     /// Criteria (all must pass):
-    ///   - ≥ 2 X-axis direction reversals
+    ///   - ≥ 3 X-axis direction reversals
     ///   - Vertical extent of all points < 80pt
     ///   - Total horizontal travel ≥ 80pt
     ///   - Duration < 1.2 seconds
@@ -33,7 +33,7 @@ enum ScratchOutDetector {
             }
             lastDx = dx
         }
-        return reversals >= 2
+        return reversals >= 3
     }
 
     /// Convenience wrapper for a real PKStroke.

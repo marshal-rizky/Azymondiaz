@@ -142,6 +142,8 @@ struct CanvasView: UIViewRepresentable {
         weak var bgView: UIImageView?
         weak var observedCanvas: PKCanvasView?
         var rerenderTimer: Timer?
+        private var isScratchErasing = false
+        private let scratchFeedback = UIImpactFeedbackGenerator(style: .light)
 
         // AI selection mode state
         var isInAISelectionMode = false
@@ -265,19 +267,22 @@ struct CanvasView: UIViewRepresentable {
         // MARK: PKCanvasViewDelegate
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            guard !isScratchErasing else { return }
             let drawing = canvasView.drawing
-            // Scratch-out detection: analyze the most recently added stroke.
             if let lastStroke = drawing.strokes.last,
                ScratchOutDetector.isScribble(stroke: lastStroke) {
+                isScratchErasing = true
+                defer { isScratchErasing = false }
                 let eraseBounds = lastStroke.renderBounds.insetBy(dx: -8, dy: -8)
+                // Explicitly drop the scratch stroke, then filter remaining by bounds.
                 var newDrawing = drawing
-                newDrawing.strokes = newDrawing.strokes.filter {
+                let remaining = drawing.strokes.dropLast()
+                newDrawing.strokes = remaining.filter {
                     !$0.renderBounds.intersects(eraseBounds)
                 }
-                // Assign back — also removes the scratch stroke itself since it intersects its own bounds.
                 canvasView.drawing = newDrawing
                 parent.drawing = newDrawing
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                scratchFeedback.impactOccurred()
                 return
             }
             parent.drawing = drawing
