@@ -71,6 +71,15 @@ struct CanvasView: UIViewRepresentable {
 
         context.coordinator.bgView = bgView
 
+        // Tap on empty canvas area → deselect the currently selected image.
+        let bgTap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleCanvasBackgroundTap(_:))
+        )
+        bgTap.cancelsTouchesInView = false
+        canvas.addGestureRecognizer(bgTap)
+        context.coordinator.canvasDeselectTap = bgTap
+
         // Observe contentSize — PK updates this on every zoom tick.
         canvas.addObserver(
             context.coordinator,
@@ -167,6 +176,14 @@ struct CanvasView: UIViewRepresentable {
         private var aiPanGesture: UIPanGestureRecognizer?
         private var aiHighlightView: UIView?
         private var aiStartPoint: CGPoint?
+
+        // Image selection + corner resize handles
+        var selectedMediaID: String? = nil
+        var handleViews: [UIView] = []
+        var handleCorners: [UIView: String] = [:]   // handle → "tl" | "tr" | "bl" | "br"
+        weak var canvasDeselectTap: UITapGestureRecognizer?
+        /// Desired screen-space size for corner handles in points.
+        private let handleScreenPts: CGFloat = 22
 
         init(_ parent: CanvasView) { self.parent = parent }
 
@@ -278,6 +295,10 @@ struct CanvasView: UIViewRepresentable {
         func stopObserving() {
             guard let canvas = observedCanvas else { return }
             canvas.removeObserver(self, forKeyPath: #keyPath(UIScrollView.contentSize))
+            if let tap = canvasDeselectTap {
+                canvas.removeGestureRecognizer(tap)
+            }
+            removeHandles()
             observedCanvas = nil
         }
 
@@ -333,6 +354,15 @@ struct CanvasView: UIViewRepresentable {
                 }
             }
 
+            // Keep corner handles pinned to the selected image and the correct
+            // screen size (handles live in content space so they'd grow with zoom
+            // unless we compensate by shrinking their content-space size).
+            if let selID = selectedMediaID, let selIV = mediaImageViews[selID] {
+                let zoom = canvas.zoomScale > 0 ? canvas.zoomScale : 1
+                selIV.layer.borderWidth = 2.0 / zoom
+                updateHandlePositions(for: selIV, in: canvas)
+            }
+
             rerenderTimer?.invalidate()
             rerenderTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self, weak canvas] _ in
                 guard let self, let canvas else { return }
@@ -373,6 +403,11 @@ struct CanvasView: UIViewRepresentable {
 
             // Remove views for deleted items, cleaning up gesture recognizer entries
             for id in existingIDs.subtracting(currentIDs) {
+                // Clear selection state if this was the selected image
+                if id == selectedMediaID {
+                    removeHandles()
+                    selectedMediaID = nil
+                }
                 if let iv = mediaImageViews[id] {
                     for gr in iv.gestureRecognizers ?? [] {
                         gestureMediaID.removeValue(forKey: gr)
@@ -395,6 +430,10 @@ struct CanvasView: UIViewRepresentable {
                 )
                 if let existing = mediaImageViews[item.id] {
                     existing.frame = frame
+                    // Keep handles in sync if this image is currently selected
+                    if item.id == selectedMediaID {
+                        updateHandlePositions(for: existing, in: canvas)
+                    }
                 } else {
                     guard let image = UIImage(data: item.imageBlob) else { continue }
                     let iv = UIImageView(image: image)
@@ -407,12 +446,18 @@ struct CanvasView: UIViewRepresentable {
                     iv.isMultipleTouchEnabled = true
                     iv.layer.zPosition = 1  // above template (z=0), below PK strokes
 
+                    // Single-tap to select (show border + corner handles)
+                    let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleMediaSingleTap(_:)))
+                    singleTap.numberOfTapsRequired = 1
+                    iv.addGestureRecognizer(singleTap)
+                    gestureMediaID[singleTap] = item.id
+
                     // Pan to move
                     let pan = UIPanGestureRecognizer(target: self, action: #selector(handleMediaPan(_:)))
                     iv.addGestureRecognizer(pan)
                     gestureMediaID[pan] = item.id
 
-                    // Pinch to resize
+                    // Pinch to resize (free-form, two-finger)
                     let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handleMediaPinch(_:)))
                     iv.addGestureRecognizer(pinch)
                     gestureMediaID[pinch] = item.id
@@ -429,6 +474,123 @@ struct CanvasView: UIViewRepresentable {
             }
         }
 
+        // MARK: - Image selection
+
+        /// Select an image: shows a gold border and four corner resize handles.
+        func selectMedia(id: String, in canvas: PKCanvasView) {
+            // Deselect the previous selection if different
+            if let prev = selectedMediaID, prev != id {
+                if let prevIV = mediaImageViews[prev] {
+                    prevIV.layer.borderWidth = 0
+                }
+                removeHandles()
+            }
+            guard let iv = mediaImageViews[id] else { return }
+            selectedMediaID = id
+            let zoom = canvas.zoomScale > 0 ? canvas.zoomScale : 1
+            iv.layer.borderWidth = 2.0 / zoom
+            iv.layer.borderColor = UIColor(AppColors.gold).cgColor
+            addHandles(to: iv, mediaID: id, in: canvas)
+        }
+
+        /// Deselect the current image: hides border and removes handles.
+        func deselectMedia() {
+            if let id = selectedMediaID, let iv = mediaImageViews[id] {
+                iv.layer.borderWidth = 0
+            }
+            removeHandles()
+            selectedMediaID = nil
+        }
+
+        /// Remove all corner handle views and clear tracking dictionaries.
+        func removeHandles() {
+            for handle in handleViews {
+                handleCorners.removeValue(forKey: handle)
+                for gr in handle.gestureRecognizers ?? [] {
+                    gestureMediaID.removeValue(forKey: gr)
+                }
+                handle.removeFromSuperview()
+            }
+            handleViews.removeAll()
+        }
+
+        /// Add four corner handles around `iv` as subviews of `canvas`.
+        /// Handles live in canvas content space; their size is divided by zoom
+        /// so they maintain a constant ~handleScreenPts screen-space size.
+        private func addHandles(to iv: UIImageView, mediaID: String, in canvas: PKCanvasView) {
+            removeHandles()  // clear any stale handles first
+            let zoom = canvas.zoomScale > 0 ? canvas.zoomScale : 1
+            let hs = handleScreenPts / zoom  // content-space handle size
+
+            let corners: [(String, CGFloat, CGFloat)] = [
+                ("tl", iv.frame.minX, iv.frame.minY),
+                ("tr", iv.frame.maxX, iv.frame.minY),
+                ("bl", iv.frame.minX, iv.frame.maxY),
+                ("br", iv.frame.maxX, iv.frame.maxY),
+            ]
+            for (corner, cx, cy) in corners {
+                let handle = UIView(frame: CGRect(x: cx - hs / 2, y: cy - hs / 2, width: hs, height: hs))
+                handle.backgroundColor = .white
+                handle.layer.borderWidth = 1.5 / zoom
+                handle.layer.borderColor = UIColor(AppColors.gold).cgColor
+                handle.layer.cornerRadius = hs * 0.25
+                handle.isUserInteractionEnabled = true
+                handle.layer.zPosition = 3  // above image views (z=1)
+
+                let pan = UIPanGestureRecognizer(target: self, action: #selector(handleResizePan(_:)))
+                pan.minimumNumberOfTouches = 1
+                pan.maximumNumberOfTouches = 1
+                handle.addGestureRecognizer(pan)
+                gestureMediaID[pan] = mediaID
+                handleCorners[handle] = corner
+
+                canvas.addSubview(handle)
+                handleViews.append(handle)
+            }
+        }
+
+        /// Reposition the corner handles to match `iv`'s current frame.
+        /// Also rescales handles to keep screen size constant at the current zoom.
+        func updateHandlePositions(for iv: UIImageView, in canvas: PKCanvasView) {
+            let zoom = canvas.zoomScale > 0 ? canvas.zoomScale : 1
+            let hs = handleScreenPts / zoom
+
+            let positions: [String: (CGFloat, CGFloat)] = [
+                "tl": (iv.frame.minX, iv.frame.minY),
+                "tr": (iv.frame.maxX, iv.frame.minY),
+                "bl": (iv.frame.minX, iv.frame.maxY),
+                "br": (iv.frame.maxX, iv.frame.maxY),
+            ]
+            for handle in handleViews {
+                guard let corner = handleCorners[handle],
+                      let (cx, cy) = positions[corner] else { continue }
+                handle.frame = CGRect(x: cx - hs / 2, y: cy - hs / 2, width: hs, height: hs)
+                handle.layer.cornerRadius = hs * 0.25
+                handle.layer.borderWidth = 1.5 / zoom
+            }
+        }
+
+        // MARK: - Gesture handlers
+
+        @objc func handleCanvasBackgroundTap(_ sender: UITapGestureRecognizer) {
+            guard selectedMediaID != nil, let canvas = observedCanvas else { return }
+            let pt = sender.location(in: canvas)
+            // Only deselect when tap lands on empty canvas (not on an image or handle).
+            let onMedia  = mediaImageViews.values.contains { $0.frame.contains(pt) }
+            let onHandle = handleViews.contains { $0.frame.contains(pt) }
+            if !onMedia && !onHandle { deselectMedia() }
+        }
+
+        @objc func handleMediaSingleTap(_ sender: UITapGestureRecognizer) {
+            guard let id = gestureMediaID[sender],
+                  let canvas = observedCanvas else { return }
+            if selectedMediaID == id {
+                deselectMedia()  // tap selected image again → deselect
+            } else {
+                selectMedia(id: id, in: canvas)
+            }
+        }
+
         @objc func handleMediaPan(_ sender: UIPanGestureRecognizer) {
             guard let id = gestureMediaID[sender],
                   let iv = mediaImageViews[id],
@@ -437,6 +599,11 @@ struct CanvasView: UIViewRepresentable {
             iv.center = CGPoint(x: iv.center.x + translation.x,
                                 y: iv.center.y + translation.y)
             sender.setTranslation(.zero, in: canvas)
+
+            // Keep handles pinned during drag
+            if id == selectedMediaID {
+                updateHandlePositions(for: iv, in: canvas)
+            }
 
             if sender.state == .ended {
                 if let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize) {
@@ -457,12 +624,14 @@ struct CanvasView: UIViewRepresentable {
             case .changed:
                 iv.transform = iv.transform.scaledBy(x: sender.scale, y: sender.scale)
                 sender.scale = 1.0
+                if id == selectedMediaID { updateHandlePositions(for: iv, in: canvas) }
             case .ended:
                 canvas.maximumZoomScale = 5.0
                 // Flatten transform into frame then persist.
                 let newFrame = iv.frame
                 iv.transform = .identity
                 iv.frame = newFrame
+                if id == selectedMediaID { updateHandlePositions(for: iv, in: canvas) }
                 if let newItem = updatedMediaItem(id: id, from: iv, pageSize: parent.pageSize) {
                     parent.onMediaUpdated?(newItem)
                 }
@@ -471,6 +640,60 @@ struct CanvasView: UIViewRepresentable {
                 iv.transform = .identity
             default:
                 break
+            }
+        }
+
+        /// Drag a corner handle to resize the image from that corner.
+        @objc func handleResizePan(_ sender: UIPanGestureRecognizer) {
+            guard let mediaID = gestureMediaID[sender],
+                  let iv = mediaImageViews[mediaID],
+                  let handle = sender.view,
+                  let corner = handleCorners[handle],
+                  let canvas = observedCanvas else { return }
+
+            let translation = sender.translation(in: canvas)
+            sender.setTranslation(.zero, in: canvas)
+
+            var f = iv.frame
+            let minSize: CGFloat = 40
+
+            switch corner {
+            case "tl":
+                // Right & bottom edges stay fixed; top-left moves.
+                let newW = max(minSize, f.width  - translation.x)
+                let newH = max(minSize, f.height - translation.y)
+                f.origin.x = f.maxX - newW
+                f.origin.y = f.maxY - newH
+                f.size = CGSize(width: newW, height: newH)
+            case "tr":
+                // Left & bottom edges stay fixed; top-right moves.
+                let newW = max(minSize, f.width  + translation.x)
+                let newH = max(minSize, f.height - translation.y)
+                f.origin.y = f.maxY - newH
+                f.size = CGSize(width: newW, height: newH)
+            case "bl":
+                // Right & top edges stay fixed; bottom-left moves.
+                let newW = max(minSize, f.width  - translation.x)
+                let newH = max(minSize, f.height + translation.y)
+                f.origin.x = f.maxX - newW
+                f.size = CGSize(width: newW, height: newH)
+            case "br":
+                // Top-left corner stays fixed; bottom-right moves.
+                f.size = CGSize(
+                    width:  max(minSize, f.width  + translation.x),
+                    height: max(minSize, f.height + translation.y)
+                )
+            default:
+                break
+            }
+
+            iv.frame = f
+            updateHandlePositions(for: iv, in: canvas)
+
+            if sender.state == .ended {
+                if let newItem = updatedMediaItem(id: mediaID, from: iv, pageSize: parent.pageSize) {
+                    parent.onMediaUpdated?(newItem)
+                }
             }
         }
 
