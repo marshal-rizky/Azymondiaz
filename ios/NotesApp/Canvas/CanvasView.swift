@@ -265,7 +265,22 @@ struct CanvasView: UIViewRepresentable {
         // MARK: PKCanvasViewDelegate
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            parent.drawing = canvasView.drawing
+            let drawing = canvasView.drawing
+            // Scratch-out detection: analyze the most recently added stroke.
+            if let lastStroke = drawing.strokes.last,
+               ScratchOutDetector.isScribble(stroke: lastStroke) {
+                let eraseBounds = lastStroke.renderBounds.insetBy(dx: -8, dy: -8)
+                var newDrawing = drawing
+                newDrawing.strokes = newDrawing.strokes.filter {
+                    !$0.renderBounds.intersects(eraseBounds)
+                }
+                // Assign back — also removes the scratch stroke itself since it intersects its own bounds.
+                canvasView.drawing = newDrawing
+                parent.drawing = newDrawing
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                return
+            }
+            parent.drawing = drawing
         }
 
         // MARK: KVO — contentSize
