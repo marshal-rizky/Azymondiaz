@@ -50,6 +50,51 @@ enum PageTemplate {
                     y += gridSize
                 }
                 cg.strokePath()
+            case .cornell:
+                // Proportions for 1024×1366 page; scale for any size.
+                let titleH: CGFloat   = 64 * (size.height / 1366)
+                let summaryH: CGFloat = 120 * (size.height / 1366)
+                let cueW: CGFloat     = 220 * (size.width / 1024)
+
+                // Gold-tinted dividers at 15% opacity (light) / 25% (dark).
+                let alpha: CGFloat = isDark ? 0.25 : 0.15
+                let divColor = UIColor(red: 0.788, green: 0.659, blue: 0.298, alpha: alpha)
+                cg.setStrokeColor(divColor.cgColor)
+                cg.setLineWidth(1.5)
+
+                // Title bottom border
+                cg.move(to: CGPoint(x: 0, y: titleH))
+                cg.addLine(to: CGPoint(x: size.width, y: titleH))
+
+                // Summary top border
+                let summaryY = size.height - summaryH
+                cg.move(to: CGPoint(x: 0, y: summaryY))
+                cg.addLine(to: CGPoint(x: size.width, y: summaryY))
+
+                // Cue column right border (from title to summary)
+                cg.move(to: CGPoint(x: cueW, y: titleH))
+                cg.addLine(to: CGPoint(x: cueW, y: summaryY))
+
+                cg.strokePath()
+
+                // Ruled lines in notes area (right of cue column)
+                cg.setStrokeColor(guide.cgColor)
+                cg.setLineWidth(1.0)
+                var ry = titleH + lineSpacing
+                while ry < summaryY {
+                    cg.move(to: CGPoint(x: cueW + 8, y: ry))
+                    cg.addLine(to: CGPoint(x: size.width - 8, y: ry))
+                    ry += lineSpacing
+                }
+
+                // Ruled lines in cue column
+                var cy = titleH + lineSpacing
+                while cy < summaryY {
+                    cg.move(to: CGPoint(x: 8, y: cy))
+                    cg.addLine(to: CGPoint(x: cueW - 8, y: cy))
+                    cy += lineSpacing
+                }
+                cg.strokePath()
             }
         }
     }

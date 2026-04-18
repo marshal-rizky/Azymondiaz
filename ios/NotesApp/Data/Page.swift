@@ -5,6 +5,7 @@ enum PageTemplateKind: String, Codable, CaseIterable {
     case line
     case grid
     case blank
+    case cornell
 }
 
 struct Page: Identifiable, Hashable, Codable, FetchableRecord, PersistableRecord {
