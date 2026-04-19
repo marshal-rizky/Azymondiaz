@@ -743,8 +743,20 @@ struct NotebookView: View {
         var base64 = LassoRasterizer.rasterize(selection: drawing, bounds: bounds)
         if base64.isEmpty {
             // Drawing is empty — fall back to the first media item image (e.g. imported PDF page).
-            if let blob = vm.currentMediaItems.first?.imageBlob {
-                base64 = blob.base64EncodedString()
+            // Crop to the same `bounds` rect so AI only sees the selected region, not the full page.
+            if let blob = vm.currentMediaItems.first?.imageBlob,
+               let src = UIImage(data: blob),
+               let cgImg = src.cgImage {
+                let pw = CGFloat(cgImg.width), ph = CGFloat(cgImg.height)
+                let cropPx = CGRect(
+                    x: bounds.minX / pageSize.width * pw,
+                    y: bounds.minY / pageSize.height * ph,
+                    width: bounds.width / pageSize.width * pw,
+                    height: bounds.height / pageSize.height * ph
+                )
+                if let cropped = cgImg.cropping(to: cropPx) {
+                    base64 = UIImage(cgImage: cropped).pngData()?.base64EncodedString() ?? ""
+                }
             }
             guard !base64.isEmpty else {
                 transformError = "Nothing to transform — draw something first."
