@@ -77,7 +77,12 @@ struct PDFPickerPresenter: UIViewControllerRepresentable {
             win.makeKeyAndVisible()
             coord.pickerWindow = win
 
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf])
+            // Use .import mode: the system downloads+copies the file locally before
+            // calling the delegate. This avoids the iCloud open-in-place coordination
+            // that forOpeningContentTypes requires — that coordination fails silently
+            // for iCloud files in our presentation context, so Recents updates but
+            // no selection checkmark ever appears.
+            let picker = UIDocumentPickerViewController(documentTypes: ["com.adobe.pdf"], in: .import)
             picker.delegate = coord
             picker.allowsMultipleSelection = false
             coord.presentedPicker = picker
@@ -107,17 +112,19 @@ struct PDFPickerPresenter: UIViewControllerRepresentable {
 
         func documentPicker(_ controller: UIDocumentPickerViewController,
                             didPickDocumentsAt urls: [URL]) {
+            // In .import mode the system already copied the file to a local inbox
+            // path — no security-scoped access or manual copy needed.
+            guard let url = urls.first, let doc = PDFDocument(url: url) else {
+                dismissPicker()
+                parent.isPresented = false
+                return
+            }
             dismissPicker()
             parent.isPresented = false
-            guard let url = urls.first,
-                  url.startAccessingSecurityScopedResource() else { return }
-            defer { url.stopAccessingSecurityScopedResource() }
-            let tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent(url.lastPathComponent)
-            try? FileManager.default.removeItem(at: tmp)
-            guard (try? FileManager.default.copyItem(at: url, to: tmp)) != nil,
-                  let doc = PDFDocument(url: tmp) else { return }
             parent.onPicked(doc)
+            // Don't delete url here — importPDF renders pages asynchronously via
+            // Task.detached; PDFDocument page data is lazily loaded from the file.
+            // The system cleans the Documents/Inbox on next launch.
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
