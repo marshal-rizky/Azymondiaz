@@ -284,37 +284,44 @@ struct ImportButton: View {
         let pageCount = doc.pageCount
         let title = doc.documentURL?.deletingPathExtension().lastPathComponent ?? "Imported"
 
+        // Shared per-page import logic: render PDF page, generate thumbnail,
+        // create blank page, attach full image as media item, persist thumbnail.
+        func importPage(_ pdfPage: PDFPage, notebookId: String) async {
+            let (blob, thumb) = await Task.detached(priority: .userInitiated) {
+                let fullBlob = PDFImporter.renderPage(pdfPage)
+                // Scale full render to 160 px wide for the sidebar thumbnail.
+                let thumbW: CGFloat = 160
+                guard let src = UIImage(data: fullBlob) else { return (fullBlob, Data()) }
+                let scale = thumbW / src.size.width
+                let thumbSize = CGSize(width: thumbW, height: (src.size.height * scale).rounded())
+                let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1.0
+                let thumbData = UIGraphicsImageRenderer(size: thumbSize, format: fmt)
+                    .pngData { _ in src.draw(in: CGRect(origin: .zero, size: thumbSize)) }
+                return (fullBlob, thumbData)
+            }.value
+
+            guard let page = try? container.pages.append(notebookId: notebookId, template: .blank) else { return }
+            // Persist thumbnail so the sidebar shows the PDF content immediately.
+            try? container.pages.updateDrawing(pageId: page.id, drawing: Data(), thumbnail: thumb)
+            let item = PageMediaItem(
+                id: UUID().uuidString, pageId: page.id, sortIndex: 0,
+                imageBlob: blob, x: 0, y: 0, width: 1, height: 1,
+                createdAt: Date()
+            )
+            try? container.pageMedia.insert(item)
+        }
+
         if forExistingNotebook, case .notebook(let nb, _) = mode {
-            // Append pages one at a time — render + write + release to avoid
-            // holding all PNG blobs in memory simultaneously.
             for i in 0..<pageCount {
                 guard let pdfPage = doc.page(at: i) else { continue }
-                let blob = await Task.detached(priority: .userInitiated) {
-                    PDFImporter.renderPage(pdfPage)
-                }.value
-                guard let page = try? container.pages.append(notebookId: nb.id, template: .blank) else { continue }
-                let item = PageMediaItem(
-                    id: UUID().uuidString, pageId: page.id, sortIndex: 0,
-                    imageBlob: blob, x: 0, y: 0, width: 1, height: 1,
-                    createdAt: Date()
-                )
-                try? container.pageMedia.insert(item)
+                await importPage(pdfPage, notebookId: nb.id)
             }
             onImportCompleted?()
         } else {
             guard let nb = try? container.notebooks.create(title: title, coverColor: "#4A90E2") else { return }
             for i in 0..<pageCount {
                 guard let pdfPage = doc.page(at: i) else { continue }
-                let blob = await Task.detached(priority: .userInitiated) {
-                    PDFImporter.renderPage(pdfPage)
-                }.value
-                guard let page = try? container.pages.append(notebookId: nb.id, template: .blank) else { continue }
-                let item = PageMediaItem(
-                    id: UUID().uuidString, pageId: page.id, sortIndex: 0,
-                    imageBlob: blob, x: 0, y: 0, width: 1, height: 1,
-                    createdAt: Date()
-                )
-                try? container.pageMedia.insert(item)
+                await importPage(pdfPage, notebookId: nb.id)
             }
             onNewNotebookCreated?(nb)
             onImportCompleted?()
