@@ -468,7 +468,7 @@ struct CanvasView: UIViewRepresentable {
                     iv.addGestureRecognizer(doubleTap)
                     gestureMediaID[doubleTap] = item.id
 
-                    canvas.insertSubview(iv, at: 1)  // after bgView (index 0)
+                    canvas.addSubview(iv)  // must be above PencilKit's internal subviews so hit-test reaches it
                     mediaImageViews[item.id] = iv
                 }
             }
