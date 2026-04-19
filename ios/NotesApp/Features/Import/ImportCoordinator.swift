@@ -32,40 +32,55 @@ enum PDFImporter {
     }
 }
 
-// MARK: - PDF document picker
+// MARK: - PDF document picker (UIKit modal presentation)
 
-struct PDFDocumentPicker: UIViewControllerRepresentable {
+/// Invisible UIViewControllerRepresentable that presents UIDocumentPickerViewController
+/// via UIKit's `present(_:animated:)` when `isPresented` becomes true.
+///
+/// SwiftUI's `.fileImporter` and wrapping UIDocumentPickerViewController inside a
+/// `.sheet` both embed the picker as a child VC. On iPadOS the picker opens but file
+/// taps don't register. Presenting it modally from a host VC fixes this.
+struct PDFPickerPresenter: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
     var onPicked: (PDFDocument) -> Void
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf])
-        picker.delegate = context.coordinator
-        picker.allowsMultipleSelection = false
-        return picker
+    func makeUIViewController(context: Context) -> UIViewController {
+        UIViewController()   // invisible host
     }
 
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(_ host: UIViewController, context: Context) {
+        if isPresented && host.presentedViewController == nil {
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf])
+            picker.delegate = context.coordinator
+            picker.allowsMultipleSelection = false
+            host.present(picker, animated: true)
+        } else if !isPresented && host.presentedViewController != nil {
+            host.dismiss(animated: true)
+        }
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let parent: PDFDocumentPicker
-        init(_ parent: PDFDocumentPicker) { self.parent = parent }
+        let parent: PDFPickerPresenter
+        init(_ parent: PDFPickerPresenter) { self.parent = parent }
 
         func documentPicker(_ controller: UIDocumentPickerViewController,
                             didPickDocumentsAt urls: [URL]) {
+            parent.isPresented = false
             guard let url = urls.first,
                   url.startAccessingSecurityScopedResource() else { return }
             defer { url.stopAccessingSecurityScopedResource() }
-            // Copy to temp storage inside the security scope so that lazy PDF
-            // page reads (which happen on a background thread later) don't race
-            // against the scope being released when this delegate method returns.
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent(url.lastPathComponent)
             try? FileManager.default.removeItem(at: tmp)
             guard (try? FileManager.default.copyItem(at: url, to: tmp)) != nil,
                   let doc = PDFDocument(url: tmp) else { return }
             parent.onPicked(doc)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.isPresented = false
         }
     }
 }
@@ -175,12 +190,11 @@ struct ImportButton: View {
                 }
             }
         }
-        // Use UIViewControllerRepresentable directly — SwiftUI's .fileImporter on
-        // iPadOS can show the picker but not register file taps. Presenting
-        // PDFDocumentPicker as a sheet gives reliable UIDocumentPickerViewController
-        // behaviour including security-scoped resource access for iCloud files.
-        .sheet(isPresented: $showingPDFPicker) {
-            PDFDocumentPicker { doc in
+        // Present UIDocumentPickerViewController modally via an invisible host VC.
+        // SwiftUI's .fileImporter and .sheet both embed the picker as a child VC,
+        // which breaks file-tap registration on iPadOS.
+        .background(
+            PDFPickerPresenter(isPresented: $showingPDFPicker) { doc in
                 showingProgress = true
                 let forExisting = isForExistingNotebook
                 Task { @MainActor in
@@ -188,7 +202,8 @@ struct ImportButton: View {
                     showingProgress = false
                 }
             }
-        }
+            .frame(width: 0, height: 0)
+        )
         .sheet(isPresented: $showingPhotoPicker) {
             PhotoItemPicker { imageData in
                 insertImage(data: imageData)

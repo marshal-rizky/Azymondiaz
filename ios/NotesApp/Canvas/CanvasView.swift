@@ -60,28 +60,22 @@ struct CanvasView: UIViewRepresentable {
         canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
         canvas.alwaysBounceVertical = false
         canvas.contentSize = pageSize
+        // Force PK's trait collection to match the page theme. The app's dark
+        // chrome makes the window trait .dark; without this override PK auto-
+        // inverts ink colors (black→white, white→black) on light-template pages.
+        canvas.overrideUserInterfaceStyle = isDark ? .dark : .light
 
-        // Template background at z=0. Frame kept in sync with zoom via KVO.
+        // Template background — always behind images (zPosition -2) and
+        // PK strokes (zPosition 0). Frame kept in sync with zoom via KVO.
         let bgView = UIImageView(
             image: PageTemplate.render(kind: template, size: pageSize, isDark: isDark)
         )
         bgView.frame = CGRect(origin: .zero, size: pageSize)
         bgView.tag = Self.bgTag
+        bgView.layer.zPosition = -2
         canvas.insertSubview(bgView, at: 0)
 
         context.coordinator.bgView = bgView
-
-        // Topmost transparent proxy routes finger touches to images/handles while
-        // letting pencil touches fall through to PencilKit's drawing recognizer.
-        // Added here (before images are inserted) so images at index 1 stay below
-        // PK's rendering layer while the proxy remains at the highest index.
-        let proxy = ImageInteractionProxy()
-        proxy.frame = CGRect(origin: .zero, size: pageSize)
-        proxy.backgroundColor = .clear
-        proxy.isUserInteractionEnabled = true
-        proxy.coordinator = context.coordinator
-        canvas.addSubview(proxy)
-        context.coordinator.imageProxy = proxy
 
         // Tap on empty canvas area → deselect the currently selected image.
         let bgTap = UITapGestureRecognizer(
@@ -136,6 +130,7 @@ struct CanvasView: UIViewRepresentable {
             if let bgView = canvas.viewWithTag(Self.bgTag) as? UIImageView {
                 bgView.image = PageTemplate.render(kind: template, size: pageSize, isDark: isDark)
             }
+            canvas.overrideUserInterfaceStyle = isDark ? .dark : .light
         }
 
         // Handle AI selection mode transitions.
@@ -171,44 +166,23 @@ struct CanvasView: UIViewRepresentable {
 
     // MARK: - MediaImageView
 
-    /// UIImageView subclass for floating canvas images.
-    /// Images are inserted at index 1 (below PencilKit's rendering layer) so ink
-    /// strokes always appear on top. An ImageInteractionProxy at the top of the
-    /// subview stack routes finger touches down to these views while letting
-    /// pencil touches fall through to PencilKit's private drawing system.
-    final class MediaImageView: UIImageView {}
-
-    // MARK: - ImageInteractionProxy
-
-    /// Transparent topmost subview of PKCanvasView. Routes finger touches to
-    /// the MediaImageView or resize handle that lies at the touch point.
-    /// Returns nil for pencil touches so PencilKit's drawing gesture recognizer
-    /// (on the ancestor PKCanvasView) can claim them unobstructed.
-    final class ImageInteractionProxy: UIView {
-        weak var coordinator: Coordinator?
-
-        // Must return true so hitTest is called even on a clear view.
-        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { true }
-
+    /// UIImageView subclass that lets Apple Pencil touches fall through to the
+    /// PKCanvasView drawing layer so pencil can draw over images. Finger touches
+    /// are kept (returned via super) for pan / pinch / tap image interaction.
+    ///
+    /// Rendering: images use `layer.zPosition = -1` so PencilKit's stroke layer
+    /// (zPosition 0) renders on top — ink always appears above images.
+    final class MediaImageView: UIImageView {
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            guard isUserInteractionEnabled, !isHidden else { return nil }
-            guard let coord = coordinator else { return nil }
-            // Pencil always falls through — PK's drawing recogniser on the ancestor
-            // PKCanvasView handles it regardless of which subview is the hit target.
+            // During the hit-test pass, event.allTouches carries the touch with
+            // its type already set on modern iOS. Return nil for pencil so the
+            // touch reaches PK's internal content view and drawing works.
             if event?.allTouches?.contains(where: {
                 $0.type == .pencil || $0.type == .stylus
             }) == true {
                 return nil
             }
-            // Handles have higher visual priority than images.
-            for handle in coord.handleViews where handle.frame.contains(point) {
-                return handle
-            }
-            // Route finger touch to the image view underneath.
-            for (_, iv) in coord.mediaImageViews where iv.frame.contains(point) {
-                return iv.hitTest(convert(point, to: iv), with: event)
-            }
-            return nil
+            return super.hitTest(point, with: event)
         }
     }
 
@@ -218,7 +192,6 @@ struct CanvasView: UIViewRepresentable {
         var parent: CanvasView
         weak var bgView: UIImageView?
         weak var observedCanvas: PKCanvasView?
-        weak var imageProxy: ImageInteractionProxy?
         var rerenderTimer: Timer?
         // Map from PageMediaItem.id → MediaImageView for gesture handling
         var mediaImageViews: [String: MediaImageView] = [:]
@@ -355,8 +328,6 @@ struct CanvasView: UIViewRepresentable {
                 canvas.removeGestureRecognizer(tap)
             }
             removeHandles()
-            imageProxy?.removeFromSuperview()
-            imageProxy = nil
             observedCanvas = nil
         }
 
@@ -397,8 +368,7 @@ struct CanvasView: UIViewRepresentable {
                   newSize.width > 1, newSize.height > 1,
                   let canvas = object as? PKCanvasView else { return }
 
-            bgView?.frame    = CGRect(origin: .zero, size: newSize)
-            imageProxy?.frame = CGRect(origin: .zero, size: newSize)
+            bgView?.frame = CGRect(origin: .zero, size: newSize)
 
             // Reposition media image views to stay at their fractional positions
             // within the scaled content area (newSize = pageSize × zoomScale).
@@ -503,11 +473,12 @@ struct CanvasView: UIViewRepresentable {
                     // which means the second finger never reaches this view and
                     // the pinch never accumulates 2 touches → never recognizes.
                     iv.isMultipleTouchEnabled = true
-                    // No zPosition override — render order controlled by subview index.
+                    // Render images below PK strokes: PK's internal content view
+                    // renders at zPosition 0 (default). Images at -1 appear behind
+                    // strokes but above the template background (zPosition -2).
+                    iv.layer.zPosition = -1
 
-                    // All image gestures are finger-only. The ImageInteractionProxy at
-                    // the top of the stack routes finger touches here; pencil touches
-                    // fall through the proxy to PencilKit's drawing recognizer.
+                    // All image gestures are finger-only so pencil can draw through.
                     let fingerOnly: [NSNumber] = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
 
                     let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleMediaSingleTap(_:)))
@@ -535,11 +506,7 @@ struct CanvasView: UIViewRepresentable {
                     iv.addGestureRecognizer(doubleTap)
                     gestureMediaID[doubleTap] = item.id
 
-                    // Insert at index 1 — above template (index 0) but below
-                    // PencilKit's internal rendering layer, so ink strokes appear
-                    // on top of images. The ImageInteractionProxy (at the highest
-                    // subview index) routes finger touches down to this view.
-                    canvas.insertSubview(iv, at: 1)
+                    canvas.addSubview(iv)
                     mediaImageViews[item.id] = iv
                 }
             }
