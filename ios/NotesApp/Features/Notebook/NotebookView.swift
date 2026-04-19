@@ -24,7 +24,7 @@ struct NotebookView: View {
 
     // Tool state
     @State private var activeTool: ActiveTool = .pen
-    @State private var activeColor: Color = AppColors.textPrimary
+    @State private var activeColor: Color = Color.black
     @State private var activeSize: CGFloat = 2
     @State private var canvasUndoManager: UndoManager? = nil
 
@@ -389,8 +389,11 @@ struct NotebookView: View {
             }
 
             if activeTool != .eraser && activeTool != .lasso {
+                // Explicit fixed colors so UIColor conversion is always literal
+                // regardless of system color scheme or dark-mode trait collection.
                 let palette: [Color] = [
-                    AppColors.textPrimary,
+                    Color.black,
+                    Color.white,
                     AppColors.gold,
                     Color(hex: "#5C6BC0")!,
                     Color(hex: "#E53935")!,

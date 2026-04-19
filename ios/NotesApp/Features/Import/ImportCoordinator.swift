@@ -127,7 +127,6 @@ struct ImportButton: View {
     @State private var showingPhotoPicker = false
     @State private var showingProgress = false
     @State private var isForExistingNotebook = false
-    @State private var importError: String? = nil
     // On iPad, confirmationDialog is a UIPopoverPresentationController. Presenting
     // a second sheet before its dismissal animation completes causes UIKit to drop
     // the presentation silently. Store intent here; onChange fires after SwiftUI
@@ -176,53 +175,19 @@ struct ImportButton: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $showingPDFPicker,
-            allowedContentTypes: [.pdf],
-            allowsMultipleSelection: false
-        ) { result in
-            // Surface every failure so we can diagnose the real root cause.
-            let urls: [URL]
-            switch result {
-            case .failure(let err):
-                importError = "Picker error: \(err.localizedDescription)"
-                return
-            case .success(let picked):
-                urls = picked
+        // Use UIViewControllerRepresentable directly — SwiftUI's .fileImporter on
+        // iPadOS can show the picker but not register file taps. Presenting
+        // PDFDocumentPicker as a sheet gives reliable UIDocumentPickerViewController
+        // behaviour including security-scoped resource access for iCloud files.
+        .sheet(isPresented: $showingPDFPicker) {
+            PDFDocumentPicker { doc in
+                showingProgress = true
+                let forExisting = isForExistingNotebook
+                Task { @MainActor in
+                    await importPDF(doc: doc, forExistingNotebook: forExisting)
+                    showingProgress = false
+                }
             }
-            guard let url = urls.first else { return }
-            guard url.startAccessingSecurityScopedResource() else {
-                importError = "Access denied for: \(url.lastPathComponent)"
-                return
-            }
-            defer { url.stopAccessingSecurityScopedResource() }
-            let tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent(url.lastPathComponent)
-            try? FileManager.default.removeItem(at: tmp)
-            do {
-                try FileManager.default.copyItem(at: url, to: tmp)
-            } catch {
-                importError = "Copy failed: \(error.localizedDescription)"
-                return
-            }
-            guard let doc = PDFDocument(url: tmp) else {
-                importError = "Not a valid PDF: \(url.lastPathComponent)"
-                return
-            }
-            showingProgress = true
-            let forExisting = isForExistingNotebook
-            Task { @MainActor in
-                await importPDF(doc: doc, forExistingNotebook: forExisting)
-                showingProgress = false
-            }
-        }
-        .alert("Import Failed", isPresented: Binding(
-            get: { importError != nil },
-            set: { if !$0 { importError = nil } }
-        )) {
-            Button("OK") { importError = nil }
-        } message: {
-            Text(importError ?? "")
         }
         .sheet(isPresented: $showingPhotoPicker) {
             PhotoItemPicker { imageData in
