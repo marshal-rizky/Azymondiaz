@@ -447,24 +447,31 @@ struct CanvasView: UIViewRepresentable {
                     iv.layer.zPosition = 1  // above template (z=0), below PK strokes
 
                     // Single-tap to select (show border + corner handles)
+                    // All image gestures are finger-only so pencil can draw through images.
+                    let fingerOnly: [NSNumber] = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+
                     let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleMediaSingleTap(_:)))
                     singleTap.numberOfTapsRequired = 1
+                    singleTap.allowedTouchTypes = fingerOnly
                     iv.addGestureRecognizer(singleTap)
                     gestureMediaID[singleTap] = item.id
 
-                    // Pan to move
+                    // Pan to move (finger only)
                     let pan = UIPanGestureRecognizer(target: self, action: #selector(handleMediaPan(_:)))
+                    pan.allowedTouchTypes = fingerOnly
                     iv.addGestureRecognizer(pan)
                     gestureMediaID[pan] = item.id
 
-                    // Pinch to resize (free-form, two-finger)
+                    // Pinch to resize (finger only)
                     let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handleMediaPinch(_:)))
+                    pinch.allowedTouchTypes = fingerOnly
                     iv.addGestureRecognizer(pinch)
                     gestureMediaID[pinch] = item.id
 
-                    // Double-tap to delete
+                    // Double-tap to delete (finger only)
                     let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleMediaDoubleTap(_:)))
                     doubleTap.numberOfTapsRequired = 2
+                    doubleTap.allowedTouchTypes = fingerOnly
                     iv.addGestureRecognizer(doubleTap)
                     gestureMediaID[doubleTap] = item.id
 
@@ -538,6 +545,7 @@ struct CanvasView: UIViewRepresentable {
                 handle.layer.zPosition = 3  // above image views (z=1)
 
                 let pan = UIPanGestureRecognizer(target: self, action: #selector(handleResizePan(_:)))
+                pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
                 pan.minimumNumberOfTouches = 1
                 pan.maximumNumberOfTouches = 1
                 handle.addGestureRecognizer(pan)

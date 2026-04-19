@@ -178,7 +178,9 @@ struct ImportButton: View {
         .fileImporter(
             isPresented: $showingPDFPicker,
             allowedContentTypes: [.pdf],
-            allowsMultipleSelection: false
+            // true = "Open" button appears, letting iOS download iCloud-resident
+            // files (☁) before delivering the URL. We still only use the first URL.
+            allowsMultipleSelection: true
         ) { result in
             guard let url = (try? result.get())?.first,
                   url.startAccessingSecurityScopedResource() else { return }
