@@ -184,6 +184,7 @@ struct ImportButton: View {
 
     let mode: ImportContext
     var onNewNotebookCreated: ((Notebook) -> Void)? = nil
+    var onImportCompleted: (() -> Void)? = nil
     var onMediaInserted: ((PageMediaItem) -> Void)? = nil
 
     @State private var showingActionSheet = false
@@ -299,6 +300,7 @@ struct ImportButton: View {
                 )
                 try? container.pageMedia.insert(item)
             }
+            onImportCompleted?()
         } else {
             guard let nb = try? container.notebooks.create(title: title, coverColor: "#4A90E2") else { return }
             for i in 0..<pageCount {
@@ -315,6 +317,7 @@ struct ImportButton: View {
                 try? container.pageMedia.insert(item)
             }
             onNewNotebookCreated?(nb)
+            onImportCompleted?()
         }
     }
 
