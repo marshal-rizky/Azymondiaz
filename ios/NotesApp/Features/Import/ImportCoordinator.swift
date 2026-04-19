@@ -34,40 +34,57 @@ enum PDFImporter {
 
 // MARK: - PDF document picker (UIKit modal presentation)
 
-/// Invisible UIViewControllerRepresentable that presents UIDocumentPickerViewController
-/// via UIKit's `present(_:animated:)` when `isPresented` becomes true.
+/// Presents UIDocumentPickerViewController from a dedicated UIWindow that sits
+/// completely outside SwiftUI's UIHostingController chain.
 ///
-/// SwiftUI's `.fileImporter` and wrapping UIDocumentPickerViewController inside a
-/// `.sheet` both embed the picker as a child VC. On iPadOS the picker opens but file
-/// taps don't register. Presenting it modally from a host VC fixes this.
+/// Root cause of all previous failures: on iPadOS, presenting
+/// UIDocumentPickerViewController from ANY VC that is part of a
+/// UIHostingController hierarchy (SwiftUI's `.fileImporter`, `.sheet`, embedded
+/// host VC, even the root UIHostingController itself) causes the picker's file
+/// grid to receive no touches — the picker appears but is completely unresponsive.
+/// Creating a separate UIWindow with its own plain UIViewController as root, then
+/// presenting from THAT VC, fully isolates the picker from SwiftUI and fixes
+/// touch routing.
 struct PDFPickerPresenter: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     var onPicked: (PDFDocument) -> Void
 
     func makeUIViewController(context: Context) -> UIViewController {
-        UIViewController()   // invisible host
+        UIViewController()   // invisible host — used only to access the window scene
     }
 
     func updateUIViewController(_ host: UIViewController, context: Context) {
-        if isPresented && context.coordinator.presentedPicker == nil {
+        let coord = context.coordinator
+        if isPresented && coord.pickerWindow == nil {
+            // Resolve the active window scene. Prefer the host view's scene;
+            // fall back to the first foreground scene if host isn't yet in a window.
+            let scene: UIWindowScene? =
+                host.view.window?.windowScene ??
+                UIApplication.shared.connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive })
+            guard let scene else { return }
+
+            // Build a dedicated transparent window. Its root VC is a plain
+            // UIViewController with no SwiftUI involvement — this is what
+            // allows UIDocumentPickerViewController to receive touches normally.
+            let win = UIWindow(windowScene: scene)
+            let rootVC = UIViewController()
+            rootVC.view.backgroundColor = .clear
+            win.rootViewController = rootVC
+            win.windowLevel = .alert
+            win.backgroundColor = .clear
+            win.makeKeyAndVisible()
+            coord.pickerWindow = win
+
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf])
-            picker.delegate = context.coordinator
+            picker.delegate = coord
             picker.allowsMultipleSelection = false
-            context.coordinator.presentedPicker = picker
-            // Present from the scene's topmost VC, not from the SwiftUI-embedded
-            // host VC. On iPadOS, presenting UIDocumentPickerViewController from a
-            // UIViewController nested inside UIHostingController causes file taps
-            // to not register — the picker appears but is unresponsive.
-            var presenter: UIViewController = host
-            if let root = host.view.window?.rootViewController {
-                var top = root
-                while let next = top.presentedViewController { top = next }
-                presenter = top
-            }
-            presenter.present(picker, animated: true)
-        } else if !isPresented, let picker = context.coordinator.presentedPicker {
-            picker.dismiss(animated: true)
-            context.coordinator.presentedPicker = nil
+            coord.presentedPicker = picker
+            rootVC.present(picker, animated: true)
+
+        } else if !isPresented && coord.pickerWindow != nil {
+            coord.dismissPicker()
         }
     }
 
@@ -75,12 +92,22 @@ struct PDFPickerPresenter: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
         let parent: PDFPickerPresenter
+        var pickerWindow: UIWindow?
         weak var presentedPicker: UIDocumentPickerViewController?
+
         init(_ parent: PDFPickerPresenter) { self.parent = parent }
+
+        func dismissPicker() {
+            presentedPicker?.dismiss(animated: true)
+            presentedPicker = nil
+            // Hiding the window resigns key status, restoring the app's main window.
+            pickerWindow?.isHidden = true
+            pickerWindow = nil
+        }
 
         func documentPicker(_ controller: UIDocumentPickerViewController,
                             didPickDocumentsAt urls: [URL]) {
-            presentedPicker = nil
+            dismissPicker()
             parent.isPresented = false
             guard let url = urls.first,
                   url.startAccessingSecurityScopedResource() else { return }
@@ -94,7 +121,7 @@ struct PDFPickerPresenter: UIViewControllerRepresentable {
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            presentedPicker = nil
+            dismissPicker()
             parent.isPresented = false
         }
     }
