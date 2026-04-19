@@ -157,6 +157,20 @@ struct CanvasView: UIViewRepresentable {
         coordinator.rerenderTimer?.invalidate()
     }
 
+    // MARK: - MediaImageView
+
+    /// UIImageView subclass that lets Apple Pencil touches fall through to the
+    /// PKCanvasView drawing layer. hitTest returns nil for stylus events so
+    /// the canvas's drawingGestureRecognizer can claim them unobstructed.
+    final class MediaImageView: UIImageView {
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            if event?.allTouches?.contains(where: { $0.type == .stylus }) == true {
+                return nil  // pass stylus through to canvas drawing layer
+            }
+            return super.hitTest(point, with: event)
+        }
+    }
+
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, PKCanvasViewDelegate {
@@ -164,8 +178,8 @@ struct CanvasView: UIViewRepresentable {
         weak var bgView: UIImageView?
         weak var observedCanvas: PKCanvasView?
         var rerenderTimer: Timer?
-        // Map from PageMediaItem.id → UIImageView for gesture handling
-        var mediaImageViews: [String: UIImageView] = [:]
+        // Map from PageMediaItem.id → MediaImageView for gesture handling
+        var mediaImageViews: [String: MediaImageView] = [:]
         // Track which media item each gesture is acting on
         var gestureMediaID: [UIGestureRecognizer: String] = [:]
         private var isScratchErasing = false
@@ -436,7 +450,7 @@ struct CanvasView: UIViewRepresentable {
                     }
                 } else {
                     guard let image = UIImage(data: item.imageBlob) else { continue }
-                    let iv = UIImageView(image: image)
+                    let iv = MediaImageView(image: image)
                     iv.frame = frame
                     iv.contentMode = .scaleAspectFit
                     iv.isUserInteractionEnabled = true
