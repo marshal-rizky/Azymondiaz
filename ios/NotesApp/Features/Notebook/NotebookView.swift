@@ -740,10 +740,16 @@ struct NotebookView: View {
             bounds = drawing.bounds.insetBy(dx: -10, dy: -10)
         }
         lassoSelectionBounds = nil
-        let base64 = LassoRasterizer.rasterize(selection: drawing, bounds: bounds)
-        guard !base64.isEmpty else {
-            transformError = "Nothing to transform — draw something first."
-            return
+        var base64 = LassoRasterizer.rasterize(selection: drawing, bounds: bounds)
+        if base64.isEmpty {
+            // Drawing is empty — fall back to the first media item image (e.g. imported PDF page).
+            if let blob = vm.currentMediaItems.first?.imageBlob {
+                base64 = blob.base64EncodedString()
+            }
+            guard !base64.isEmpty else {
+                transformError = "Nothing to transform — draw something first."
+                return
+            }
         }
         transformInFlight = true
         defer { transformInFlight = false }

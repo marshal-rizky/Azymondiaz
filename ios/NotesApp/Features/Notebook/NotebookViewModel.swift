@@ -169,13 +169,21 @@ final class NotebookViewModel {
         let drawing = currentDrawing
         let data = drawing.dataRepresentation()
         let thumbSize = CGSize(width: 1024, height: 1366)
-        let thumb = ThumbnailRenderer.render(
-            drawing: drawing,
-            template: page.template,
-            pageSize: thumbSize,
-            thumbnailWidth: 160,
-            isDark: page.theme == "dark"
-        )
+        // Preserve existing thumbnail when there are no strokes (e.g. imported PDF pages).
+        // Regenerating from an empty PKDrawing would overwrite the PDF content thumbnail
+        // with a blank white image.
+        let thumb: Data?
+        if drawing.strokes.isEmpty, page.thumbnailBlob != nil {
+            thumb = page.thumbnailBlob
+        } else {
+            thumb = ThumbnailRenderer.render(
+                drawing: drawing,
+                template: page.template,
+                pageSize: thumbSize,
+                thumbnailWidth: 160,
+                isDark: page.theme == "dark"
+            )
+        }
         do {
             try repo.updateDrawing(pageId: page.id, drawing: data, thumbnail: thumb)
             if let refreshed = try repo.fetch(id: page.id),
