@@ -46,6 +46,20 @@ final class NotebookViewModel {
         }
     }
 
+    /// Reload pages after a bulk import; jump to the first newly added page
+    /// so imported content is immediately visible.
+    func reloadAfterImport(previousPageCount: Int) {
+        do {
+            pages = try repo.fetchAll(notebookId: notebook.id)
+            currentPageIndex = pages.count > previousPageCount
+                ? previousPageCount          // first new page
+                : max(0, pages.count - 1)    // fallback if nothing was added
+            loadDrawingForCurrentPage()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func selectPage(index: Int) {
         flushSave()
         currentPageIndex = max(0, min(index, pages.count - 1))

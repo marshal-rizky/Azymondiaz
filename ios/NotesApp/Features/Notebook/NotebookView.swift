@@ -259,7 +259,12 @@ struct NotebookView: View {
                 ImportButton(
                     mode: .notebook(notebook, page.id),
                     onNewNotebookCreated: { _ in },  // created in background; user checks library
-                    onImportCompleted: { vm.load() }, // reload pages so imported content appears
+                    onImportCompleted: {
+                        // Reload and jump to the first imported page so content is visible.
+                        // vm.load() would reset to page 0; reloadAfterImport goes to first new page.
+                        let prev = vm.pages.count
+                        vm.reloadAfterImport(previousPageCount: prev)
+                    },
                     onMediaInserted: { vm.addMedia($0) }
                 )
             }
