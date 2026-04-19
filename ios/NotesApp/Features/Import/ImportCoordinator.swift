@@ -49,13 +49,25 @@ struct PDFPickerPresenter: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ host: UIViewController, context: Context) {
-        if isPresented && host.presentedViewController == nil {
+        if isPresented && context.coordinator.presentedPicker == nil {
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf])
             picker.delegate = context.coordinator
             picker.allowsMultipleSelection = false
-            host.present(picker, animated: true)
-        } else if !isPresented && host.presentedViewController != nil {
-            host.dismiss(animated: true)
+            context.coordinator.presentedPicker = picker
+            // Present from the scene's topmost VC, not from the SwiftUI-embedded
+            // host VC. On iPadOS, presenting UIDocumentPickerViewController from a
+            // UIViewController nested inside UIHostingController causes file taps
+            // to not register — the picker appears but is unresponsive.
+            var presenter: UIViewController = host
+            if let root = host.view.window?.rootViewController {
+                var top = root
+                while let next = top.presentedViewController { top = next }
+                presenter = top
+            }
+            presenter.present(picker, animated: true)
+        } else if !isPresented, let picker = context.coordinator.presentedPicker {
+            picker.dismiss(animated: true)
+            context.coordinator.presentedPicker = nil
         }
     }
 
@@ -63,10 +75,12 @@ struct PDFPickerPresenter: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
         let parent: PDFPickerPresenter
+        weak var presentedPicker: UIDocumentPickerViewController?
         init(_ parent: PDFPickerPresenter) { self.parent = parent }
 
         func documentPicker(_ controller: UIDocumentPickerViewController,
                             didPickDocumentsAt urls: [URL]) {
+            presentedPicker = nil
             parent.isPresented = false
             guard let url = urls.first,
                   url.startAccessingSecurityScopedResource() else { return }
@@ -80,6 +94,7 @@ struct PDFPickerPresenter: UIViewControllerRepresentable {
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            presentedPicker = nil
             parent.isPresented = false
         }
     }

@@ -174,15 +174,17 @@ struct CanvasView: UIViewRepresentable {
     /// (zPosition 0) renders on top — ink always appears above images.
     final class MediaImageView: UIImageView {
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            // During the hit-test pass, event.allTouches carries the touch with
-            // its type already set on modern iOS. Return nil for pencil so the
-            // touch reaches PK's internal content view and drawing works.
-            if event?.allTouches?.contains(where: {
-                $0.type == .pencil || $0.type == .stylus
-            }) == true {
-                return nil
+            // Default to passing through (nil). Only intercept confirmed direct
+            // (finger) touches. This handles the case where event is nil or
+            // allTouches is empty — UIKit does "dry-run" hitTest calls with no
+            // event data; if we checked "is it a pencil?" and the check returned
+            // false due to a nil event, we'd wrongly claim the touch and block
+            // Apple Pencil drawing.
+            guard let touches = event?.allTouches, !touches.isEmpty else { return nil }
+            if touches.contains(where: { $0.type == .direct }) {
+                return super.hitTest(point, with: event)
             }
-            return super.hitTest(point, with: event)
+            return nil
         }
     }
 
